@@ -1,0 +1,6 @@
+httpx>=0.28
+yt-dlp
+# yt-dlp deliberately unpinned - sites change their players constantly and
+# old versions stop working; the fix for an extraction error is
+# `pip install -U yt-dlp`. Also needs ffmpeg as a separate binary on PATH
+# to merge separate video/audio streams (not a pip package).

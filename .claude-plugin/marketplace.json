@@ -48,6 +48,41 @@
       "description": "Gmail, Calendar, Drive, and Tasks subagent via OAuth2.",
       "version": "0.1.0",
       "category": "productivity"
+    },
+    {
+      "name": "concierge-finance",
+      "source": "./plugins/concierge-finance",
+      "description": "Tracks personal spending from Chase/BoA statement exports (CSV/OFX/QFX). Parses and categorizes transactions locally via Ollama into a SQLite store. Bank data never leaves the machine.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-paperwork",
+      "source": "./plugins/concierge-paperwork",
+      "description": "Finds and suggests filing for personal documents synced from a cloud drive. Search-only — extracts/classifies via a local Ollama model, never Claude's API.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-fantasy",
+      "source": "./plugins/concierge-fantasy",
+      "description": "Tracks Sleeper leagues and DraftKings NFL DFS. Local rosters/stats/optimization, weekly recommendations via local Ollama, VBD draft board, live draft-day pick signals. Read-only on DraftKings.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-family",
+      "source": "./plugins/concierge-family",
+      "description": "Tracks kids' school life: processes school email into a notes vault, calendar events, and Google Tasks. Ships a routing-config template, not real family data.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-media",
+      "source": "./plugins/concierge-media",
+      "description": "Manages a Plex media server and its acquisition stack (qBittorrent, Prowlarr, Radarr, Sonarr, Jellyseerr) over HTTP. Finds/downloads media, oversees automation, triages family requests against an approval policy.",
+      "version": "0.1.0",
+      "category": "productivity"
     }
   ]
 }

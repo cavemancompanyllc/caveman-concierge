@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-fantasy",
+  "version": "0.1.0",
+  "description": "Tracks Sleeper season-long leagues and DraftKings NFL DFS. Local rosters/stats/injuries/salaries, lineup optimization, weekly recommendations via local Ollama, VBD draft board, live draft-day pick signals. Read-only on DraftKings.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["fantasy-football", "sleeper", "draftkings", "sports"]
+}
