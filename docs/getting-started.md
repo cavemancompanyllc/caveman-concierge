@@ -77,6 +77,17 @@ claude plugin update concierge-core@caveman-concierge   # or any specific plugin
 
 ## Troubleshooting
 
+- **Never remove a marketplace registration you have plugins installed
+  from, even to re-add it under the same name.** `claude plugin
+  marketplace remove <name>` wipes `enabledPlugins` *and every plugin's
+  `userConfig` values* for that marketplace — re-adding it (even pointed
+  at the exact same source) does not restore either; you have to
+  reinstall each plugin with its `--config` values again from scratch.
+  If you need to change a marketplace's source (e.g. switching from a
+  local dev path to the real GitHub URL), do it by editing
+  `extraKnownMarketplaces` in `settings.json` directly, or just accept
+  the reinstall cost and keep a record of your `--config` values
+  somewhere before you do it.
 - **"N userConfig options not yet set"** after install — the plugin has
   required config you didn't pass. Re-run install with `--config`, or
   uninstall/reinstall (Claude Code applies `--config` cleanly on a fresh
