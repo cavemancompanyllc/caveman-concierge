@@ -1,0 +1,15 @@
+.env
+.DS_Store
+Thumbs.db
+data/
+# Config with real values (network layout, routing tables, etc.) is
+# instance data, not code — .example.json templates ship inside the
+# relevant plugin and/or get copied here by hand; only the real files
+# living directly in config/ are ignored.
+config/*.json
+!config/*.example.json
+config/*.md
+scratch/
+.claude/settings.local.json
+__pycache__/
+*.pyc
