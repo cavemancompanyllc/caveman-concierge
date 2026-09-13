@@ -1,0 +1,40 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-memory-obsidian",
+  "version": "0.1.0",
+  "description": "Obsidian vault subagent (notes, project plans, reading/shopping lists) backed by the Obsidian Local REST API plugin over MCP.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["obsidian", "notes", "memory"],
+  "userConfig": {
+    "vault_path": {
+      "type": "directory",
+      "title": "Vault path",
+      "description": "Absolute path to your Obsidian vault (informational — the actual connection goes through the REST API plugin's host/port below; this is used in the agent's own text so it knows what it's talking about).",
+      "required": true
+    },
+    "api_key": {
+      "type": "string",
+      "title": "Obsidian Local REST API key",
+      "description": "From Obsidian > Settings > Community Plugins > Local REST API > API Key.",
+      "required": true,
+      "sensitive": true
+    },
+    "host": {
+      "type": "string",
+      "title": "Obsidian REST API host",
+      "description": "Usually 127.0.0.1 (same machine).",
+      "default": "127.0.0.1"
+    },
+    "port": {
+      "type": "number",
+      "title": "Obsidian REST API port",
+      "description": "Port the Local REST API plugin listens on.",
+      "default": 27124
+    }
+  }
+}

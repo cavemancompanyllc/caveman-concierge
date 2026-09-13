@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp_obsidian_launcher.py"],
+      "env": {
+        "CONCIERGE_HOME": "${CLAUDE_PROJECT_DIR}",
+        "OBSIDIAN_API_KEY": "${user_config.api_key}",
+        "OBSIDIAN_HOST": "${user_config.host}",
+        "OBSIDIAN_PORT": "${user_config.port}"
+      }
+    }
+  }
+}

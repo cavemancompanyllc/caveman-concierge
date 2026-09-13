@@ -1,0 +1,28 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-google",
+  "version": "0.1.0",
+  "description": "Gmail, Calendar, Drive, and Tasks subagent via OAuth2. One-time interactive auth setup (google_auth_setup.py) is separate from the MCP server itself, which only ever loads the cached token.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["google", "gmail", "calendar", "drive", "tasks", "oauth"],
+  "userConfig": {
+    "client_id": {
+      "type": "string",
+      "title": "Google OAuth Client ID",
+      "description": "From Google Cloud Console > APIs & Services > Credentials > OAuth client ID > Desktop app.",
+      "required": true
+    },
+    "client_secret": {
+      "type": "string",
+      "title": "Google OAuth Client Secret",
+      "description": "From the same OAuth Desktop app client as the Client ID above.",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}
