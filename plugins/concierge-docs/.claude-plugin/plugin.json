@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-docs",
+  "version": "0.1.0",
+  "description": "Diagram (D2) and document (Pandoc) rendering subagents for Caveman Concierge.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["diagrams", "documents", "d2", "pandoc"],
+  "userConfig": {
+    "d2_binary": {
+      "type": "string",
+      "title": "D2 binary path",
+      "description": "Path to the D2 CLI executable (d2lang.com). Default assumes the Windows installer default location.",
+      "default": "d2"
+    },
+    "pandoc_binary": {
+      "type": "string",
+      "title": "Pandoc binary path",
+      "description": "Path to the Pandoc executable. Default assumes it's on PATH.",
+      "default": "pandoc"
+    }
+  }
+}
