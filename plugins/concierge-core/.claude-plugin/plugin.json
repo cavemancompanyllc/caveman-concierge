@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-core",
+  "version": "0.1.0",
+  "description": "Session-continuity tracker (Project/Effort/Session, local SQLite) and a local token-usage report. The foundation plugin most other Caveman Concierge plugins assume is present.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["session-tracking", "productivity", "core"]
+}

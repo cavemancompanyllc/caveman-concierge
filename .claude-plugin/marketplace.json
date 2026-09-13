@@ -8,6 +8,20 @@
   },
   "plugins": [
     {
+      "name": "concierge-core",
+      "source": "./plugins/concierge-core",
+      "description": "Session-continuity tracker (Project/Effort/Session, local SQLite) and a local token-usage report. The foundation plugin most other plugins here assume is present.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-git",
+      "source": "./plugins/concierge-git",
+      "description": "Git commit/branch/merge subagent with a mandatory pre-commit secret scan. Optionally manages a second repo (e.g. a notes vault) alongside the instance repo.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
       "name": "concierge-docs",
       "source": "./plugins/concierge-docs",
       "description": "Diagrams (D2) and document rendering (Pandoc) subagents — turns Markdown/notes into SVGs, PDFs, DOCX, etc.",

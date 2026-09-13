@@ -1,0 +1,26 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-git",
+  "version": "0.1.0",
+  "description": "Git commit/branch/merge subagent with a mandatory pre-commit secret scan. Optionally manages a second, independently-versioned repo (e.g. a notes vault) alongside the instance repo.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["git", "secrets", "commit"],
+  "userConfig": {
+    "secondary_repo_path": {
+      "type": "directory",
+      "title": "Secondary repo path (optional)",
+      "description": "Path to a second, independently-versioned git repo this agent should also manage (e.g. a notes vault). Leave unset for single-repo mode."
+    },
+    "secondary_repo_label": {
+      "type": "string",
+      "title": "Secondary repo label",
+      "description": "Short label for the secondary repo, used in the agent's own output (e.g. 'notes vault').",
+      "default": "secondary repo"
+    }
+  }
+}
