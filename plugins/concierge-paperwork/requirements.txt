@@ -1,0 +1,5 @@
+httpx>=0.28
+docling
+# Also requires the `pdftotext` binary (poppler-utils) on PATH for PDF text
+# extraction — not a pip package. Windows: https://github.com/oschwartz10612/poppler-windows
+# macOS: brew install poppler | Linux: apt install poppler-utils

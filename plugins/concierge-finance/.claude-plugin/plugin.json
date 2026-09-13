@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-finance",
+  "version": "0.1.0",
+  "description": "Tracks personal spending from Chase/BoA statement exports (CSV/OFX/QFX). Parses and categorizes transactions locally via Ollama into a SQLite store, answers spending/trend questions. Bank data never leaves the machine.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["finance", "budget", "spending"]
+}
