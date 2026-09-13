@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "google": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp_google_server.py"],
+      "env": {
+        "CONCIERGE_HOME": "${CLAUDE_PROJECT_DIR}",
+        "GOOGLE_CLIENT_ID": "${user_config.client_id}",
+        "GOOGLE_CLIENT_SECRET": "${user_config.client_secret}"
+      }
+    }
+  }
+}

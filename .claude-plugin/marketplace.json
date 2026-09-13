@@ -27,6 +27,27 @@
       "description": "Diagrams (D2) and document rendering (Pandoc) subagents — turns Markdown/notes into SVGs, PDFs, DOCX, etc.",
       "version": "0.1.0",
       "category": "productivity"
+    },
+    {
+      "name": "concierge-memory-obsidian",
+      "source": "./plugins/concierge-memory-obsidian",
+      "description": "Obsidian vault subagent (notes, project plans, reading/shopping lists) backed by the Obsidian Local REST API plugin over MCP.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-local-llm",
+      "source": "./plugins/concierge-local-llm",
+      "description": "Exposes a local Ollama model as an MCP tool for bounded, low-stakes text work — no network calls leave the machine.",
+      "version": "0.1.0",
+      "category": "productivity"
+    },
+    {
+      "name": "concierge-google",
+      "source": "./plugins/concierge-google",
+      "description": "Gmail, Calendar, Drive, and Tasks subagent via OAuth2.",
+      "version": "0.1.0",
+      "category": "productivity"
     }
   ]
 }

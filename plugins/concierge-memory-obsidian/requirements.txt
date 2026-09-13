@@ -1,0 +1,9 @@
+# Runs the mcp-obsidian server in-process (not via uvx) so
+# scripts/mcp_obsidian_launcher.py can pin the mcp SDK version and patch a
+# known upstream gap in mcp-obsidian's PATCH support before it starts — see
+# that file's docstring for why. Pinned exactly (==) since it's a 3rd-party
+# package we monkeypatch by name/signature; an upstream release could
+# silently change the method we're patching.
+mcp>=1.28,<2.0.0
+mcp-obsidian==0.2.2
+requests>=2.32

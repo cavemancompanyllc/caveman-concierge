@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "concierge-local-llm",
+  "version": "0.1.0",
+  "description": "Exposes a local Ollama model as an MCP tool for bounded, low-stakes text work (summarizing, boilerplate, classification) — no network calls leave the machine.",
+  "author": {
+    "name": "Mike",
+    "email": "admin@cavemancompany.co"
+  },
+  "homepage": "https://github.com/cavemancompany/caveman-concierge",
+  "license": "MIT",
+  "keywords": ["ollama", "local-llm", "privacy"],
+  "userConfig": {
+    "ollama_host": {
+      "type": "string",
+      "title": "Ollama host",
+      "description": "Base URL of the Ollama REST API.",
+      "default": "http://localhost:11434"
+    }
+  }
+}
