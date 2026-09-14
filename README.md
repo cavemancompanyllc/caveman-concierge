@@ -20,6 +20,19 @@ claude plugin install concierge-git@caveman-concierge --scope project
 Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 Full plugin list + what each one needs: [docs/agent-catalog.md](docs/agent-catalog.md).
 
+## No API key, no separate bill
+
+This runs entirely on [Claude Code](https://claude.com/claude-code) —
+subagents, skills, MCP servers, all of it. Most agent frameworks (custom
+GPT wrappers, LangChain-style setups, most "AI assistant" tutorials)
+require you to create an API key and pay per token on top of any Claude/
+ChatGPT subscription you already have. There's none of that here: if
+you're already paying for a Claude Code plan (Pro or Max), that's the only
+bill — every plugin in this repo runs against your existing subscription.
+The trade-off is the reverse of a typical framework's: less raw flexibility
+than hand-rolling API calls, in exchange for zero infrastructure to run,
+maintain, or pay for separately.
+
 ## Why this exists
 
 Most "AI assistant" setups are one app, one config, one person. This one
