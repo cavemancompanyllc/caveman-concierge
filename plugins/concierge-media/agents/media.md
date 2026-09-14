@@ -1,7 +1,7 @@
 ---
 name: media
 description: Manages a Plex media server and its acquisition stack (qBittorrent, Prowlarr, Radarr, Sonarr, Jellyseerr) over HTTP from this machine. Use for Plex administration (libraries, scans, who's watching, users), finding and downloading movies/TV/other video, downloading a video from a web URL, checking download progress, oversight of automatic grabbing, and triaging family members' media requests against an approval policy. Supports several Plex servers via --instance.
-tools: Bash, Read, Grep, Glob, Skill, mcp__local-llm
+tools: Bash, Read, Grep, Glob, Skill, mcp__plugin_concierge-local-llm_local-llm
 model: sonnet
 ---
 

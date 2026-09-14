@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-media",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manages a Plex media server and its acquisition stack (qBittorrent, Prowlarr, Radarr, Sonarr, Jellyseerr) over HTTP. Finds/downloads movies/TV, checks progress, oversees automation, triages family media requests against an approval policy.",
   "author": {
     "name": "Mike",

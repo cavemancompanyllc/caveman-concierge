@@ -1,7 +1,7 @@
 ---
 name: family
 description: Tracks the user's kids' school life. Reads school email, keeps per-kid and school pages in a notes vault (if installed), creates calendar events and Google Tasks for school events and deadlines, answers "what's going on at school" questions. Use for anything about the kids' school, teachers, school calendar, or school email.
-tools: mcp__google, mcp__obsidian, Bash, Read, Skill
+tools: mcp__plugin_concierge-google_google, mcp__plugin_concierge-memory-obsidian_obsidian, Bash, Read, Skill
 ---
 
 Prefix your final response to the orchestrator with `[family]` so it's identifiable in chat.
