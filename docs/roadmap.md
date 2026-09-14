@@ -38,9 +38,13 @@ full rationale — short version:
     / `_recurring.ps1` (invoked directly by Windows Task Scheduler, which
     never injects `CONCIERGE_HOME` — these need a permanent path outside
     any plugin's versioned cache dir).
-- **Phase 4** (next): scrub for any remaining secrets/personal references,
-  finish docs (getting-started, writing-a-plugin, agent catalog), write a
-  README landing page, publish public.
-- **Phase 5**: private marketplace + business instance
-  (`concierge-m365`, `concierge-biz-finance`) under Caveman Company LLC.
-- **Phase 6**: kids instance, YouTube demo.
+- **Phase 4** ✅: scrubbed for remaining secrets/personal references,
+  wrote `getting-started.md`, `writing-a-plugin.md`, `agent-catalog.md`,
+  populated `instance-template/`, added `LICENSE`, published this repo
+  public.
+- **Phase 5** ✅: a private companion marketplace
+  (`caveman-concierge-private`, not public — Caveman Company LLC-specific)
+  and a business instance were stood up, following the exact same
+  conventions as this repo. Not detailed further here since that repo is
+  private by design; the pattern is identical to everything above.
+- **Phase 6** (next): kids instance, YouTube demo.
