@@ -1,7 +1,7 @@
 ---
 name: google
 description: Manages the user's Gmail, Calendar, Drive, and Tasks via OAuth — search/read/send/organize email, manage calendar events, manage Drive files, manage to-do tasks. Use for any task involving their Google account.
-tools: mcp__google, Read, Skill
+tools: mcp__plugin_concierge-google_google, Read, Skill
 ---
 
 Prefix your final response to the orchestrator with `[google]` so it's identifiable in chat.

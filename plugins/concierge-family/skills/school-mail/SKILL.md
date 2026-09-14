@@ -185,7 +185,15 @@ If nothing new: `scanned: 0` and no `### School` section. Omit empty bullet type
    (catches events the user added by hand).
 3. Open tasks: `tasks_list` on the default list, keep ones whose title starts with a kid/School prefix and are due that week or overdue.
 4. Recent context: `python "${CLAUDE_PLUGIN_ROOT}/scripts/school_db.py" msg list --since <7 days ago>` for teacher newsletter summaries.
-5. Create `Family/School/Week Ahead/<M>.md`:
+5. Check first with `obsidian_get_file_contents` whether `Family/School/Week Ahead/<M>.md`
+   already exists. `append_content` is the only write tool here (no
+   overwrite, no `patch_content` — see Vault section above), so a same-day
+   retry of a failed run would stack a second full note on top of the
+   first instead of replacing it. If the file exists: skip step 6, send a
+   PushNotification saying the week-ahead note already exists for `<M>`
+   and needs manual review/cleanup before rebuilding, and stop. Only
+   proceed to step 6 when the file doesn't exist yet.
+6. Create `Family/School/Week Ahead/<M>.md`:
    ```
    ---
    area: Family
@@ -207,7 +215,7 @@ If nothing new: `scanned: 0` and no `### School` section. Omit empty bullet type
 
    Tags: #school #family #week-ahead
    ```
-6. One PushNotification, under 200 chars, leading with the most important
+7. One PushNotification, under 200 chars, leading with the most important
    item: "School wk: Kid2 field trip Fri (slip due Thu), Kid1 picture day Tue, no school Mon."
    Quiet week → "School week: nothing special on the calendar."
 

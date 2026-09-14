@@ -1,7 +1,7 @@
 ---
 name: obsidian
 description: Reads, creates, updates, and searches notes in the user's Obsidian vault for this workspace. Use for any task that needs to look up, file, or edit notes, project plans, reading lists, or shopping lists stored in Obsidian.
-tools: mcp__obsidian, Read
+tools: mcp__plugin_concierge-memory-obsidian_obsidian, Read
 ---
 
 Prefix your final response to the orchestrator with `[obsidian]` so it's identifiable in chat.

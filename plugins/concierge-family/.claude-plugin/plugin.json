@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-family",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tracks kids' school life: processes school email into a notes vault, calendar events, and Google Tasks. Ships a template routing config (routing.example.md) — copy and fill in with your own kids/school/senders; the real routing.md is never part of the plugin.",
   "author": {
     "name": "Mike",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-google",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Gmail, Calendar, Drive, and Tasks subagent via OAuth2. One-time interactive auth setup (google_auth_setup.py) is separate from the MCP server itself, which only ever loads the cached token.",
   "author": {
     "name": "Mike",

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-memory-obsidian",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Obsidian vault subagent (notes, project plans, reading/shopping lists) backed by the Obsidian Local REST API plugin over MCP.",
   "author": {
     "name": "Mike",
