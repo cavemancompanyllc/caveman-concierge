@@ -542,7 +542,9 @@ class QbitClient(_Client):
             headers={"Referer": self.base_url},
         )
         self._ok(resp)
-        if resp.text.strip() != "Ok.":
+        # qBittorrent <5 answers "Ok." with cookie SID; 5.x answers 204, empty
+        # body, cookie QBT_SID_<port>.
+        if resp.text.strip() not in ("Ok.", "") or not any("SID" in c for c in resp.cookies):
             raise MediaError(
                 "qBittorrent refused the login. Check QBIT_USERNAME/QBIT_PASSWORD "
                 "in .env, and that the Web UI is enabled."
