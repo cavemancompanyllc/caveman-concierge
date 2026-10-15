@@ -41,9 +41,11 @@ subcommands that actually exist in `"${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index
 - `python "${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index.py" sync-odds --week N [--season N]` —
   pulls NFL spreads/totals from The Odds API into `game_odds`, averaged
   across whatever bookmakers are returned, deriving each team's implied
-  total (`(total - spread_home) / 2` etc.). Requires `ODDS_API_KEY` in
-  `.env` (paid tier, the-odds-api.com, ~$29/mo) — prints a message and
-  no-ops if unset, never fails loudly. Games are matched to this
+  total (`(total - spread_home) / 2` etc.). Uses `ODDS_API_KEY` in
+  `.env` (paid tier, the-odds-api.com, ~$29/mo) when set; without it,
+  falls back to ESPN's free public scoreboard (one provider,
+  `bookmaker_count` 1 — fine for implied totals, not for line shopping;
+  ESPN drops the line once a game is final, so sync before kickoff). Games are matched to this
   season/week by home/away team pair against nflreadpy's own schedule, so
   a game nflreadpy hasn't scheduled yet gets skipped, not guessed. Feeds
   `project`'s odds multiplier automatically once synced — no separate
@@ -162,7 +164,33 @@ subcommands that actually exist in `"${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index
   chase ceiling). Considered `pydfs-lineup-optimizer` but it hard-pins
   PuLP==2.4 against our `pulp>=3.0`; hand-rolled instead to avoid the
   version conflict. **Analysis only** — prints the lineup for the user to enter
-  by hand, never touches DraftKings via API (see below).
+  by hand, never touches DraftKings via API (see below). `sync-dk` also
+  stores DK's `Status` column; the pool filter (shared with
+  `optimize-showdown`) drops OUT/IR/Doubtful, backup QBs (any QB priced
+  below his team's top-priced healthy QB — DK's pricing knows the depth
+  chart better than our prior-week projections), and RB/WR/TE under
+  `--min-snap` (default 0.25) average snap share over their last 3 games.
+  Notable exclusions ($6k+) are printed — sanity-check them (a star back
+  from IR has no recent snaps and gets dropped).
+- `python "${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index.py" dfs-refresh [--week N] [--season N]`
+  — **run this the morning of every DFS slate, before any optimizer.**
+  Chains sync-stats (whole season + injuries), sync-odds, sync-weekly-
+  rankings, project, blend-projections. `optimize-dk` and
+  `optimize-showdown` refuse to run on projections older than 18h or
+  stats not synced through the prior week; `--allow-stale` overrides, and
+  if you use it, tell the user the lineup is built on stale data. Origin:
+  week-5 2026 retro, where 4-day-old projections (MAE 7.0 DK pts) caused
+  most of the misses.
+- `python "${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index.py" optimize-showdown --file PATH --season N --week N
+  [--lineups 2] [--min-snap 0.25] [--allow-te-cpt]` — DK Showdown Captain
+  Mode (1 CPT at 1.5x points + 5 FLEX, $50k, both teams represented).
+  Reads a hand-exported Showdown salary CSV directly (not stored in
+  `dk_salaries`, which would pollute the Classic pool). Same projections
+  and pool filter as `optimize-dk`. Captain rules: never K/DST, TE only
+  with `--allow-te-cpt`, and the favored team's QB/RB get a +3%-per-point-
+  of-spread boost (cap 10) in the CPT slot only. Each lineup has a distinct
+  captain. Stored in `dk_lineups` as `showdown:<AWAY>@<HOME>` for the retro.
+  **Analysis only.**
 - No Monte Carlo / ownership-projection layer yet (that's the next real
   edge over point-estimate optimization per the research note in
   `Fantasy Football/Fantasy Football Prediction Methods — Research.md` in
@@ -437,6 +465,18 @@ issue. This tool only ever reads public salary/slate/contest data for
 analysis. **Never** write code or run a command that submits, edits, or
 withdraws a DK lineup or contest entry via API. Recommendations are
 the user's to act on by hand in the DK app.
+
+## One thesis per slate
+
+Before handing over recommendations that span more than one entry or
+product on the same slate (Classic, Showdown, Pick6), list each key
+player and game with the direction every entry bets on it (e.g.
+"McBride: Milly stack = big game, Pick6 = Less 84.5"). Any opposite-
+direction bet must be labeled **HEDGE** in the hand-off with one line on
+why, so the user chooses it on purpose. Default to one consistent read
+of each game across all entries. Origin: week-5 2026, where the Pick6
+card took Less on the same ARI/DET receivers the Milly and Showdown
+lineups needed to go big, without anyone deciding to hedge.
 
 ## Weekly lineup-setting strategy
 

@@ -577,6 +577,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     proj_cols = {row[1] for row in conn.execute("PRAGMA table_info(projections)")}
     if "blend_note" not in proj_cols:
         conn.execute("ALTER TABLE projections ADD COLUMN blend_note TEXT")
+    dk_cols = {row[1] for row in conn.execute("PRAGMA table_info(dk_salaries)")}
+    if "status" not in dk_cols:
+        conn.execute("ALTER TABLE dk_salaries ADD COLUMN status TEXT")
     conn.commit()
 
 
@@ -1020,6 +1023,65 @@ def _team_name_crosswalk() -> dict[str, str]:
     return {t["team_name"]: t["team_abbr"] for t in teams}
 
 
+def _upsert_game_odds(conn: sqlite3.Connection, season: int, week: int, home: str, away: str,
+                      commence_time: str | None, spread_home: float, total: float, bookmaker_count: int) -> None:
+    home_implied = (total - spread_home) / 2
+    away_implied = (total + spread_home) / 2
+    conn.execute(
+        "INSERT INTO game_odds (season, week, home_team, away_team, commence_time, spread_home, total, "
+        "home_implied_total, away_implied_total, bookmaker_count, synced_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
+        "ON CONFLICT(season, week, home_team, away_team) DO UPDATE SET "
+        "commence_time=excluded.commence_time, spread_home=excluded.spread_home, total=excluded.total, "
+        "home_implied_total=excluded.home_implied_total, away_implied_total=excluded.away_implied_total, "
+        "bookmaker_count=excluded.bookmaker_count, synced_at=excluded.synced_at",
+        (season, week, home, away, commence_time, round(spread_home, 1), round(total, 1),
+         round(home_implied, 1), round(away_implied, 1), bookmaker_count),
+    )
+
+
+# ESPN scoreboard abbreviations that differ from nflverse's team_abbr
+ESPN_TEAM_FIX = {"WSH": "WAS", "LAR": "LA"}
+ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+
+
+def _sync_odds_espn(season: int, week: int, week_pairs: set[tuple[str, str]]) -> None:
+    """Free fallback when ODDS_API_KEY isn't set: ESPN's public scoreboard
+    carries one provider's spread ("DET -5.5") and over/under per game. One
+    book instead of a cross-book average, so bookmaker_count is 1 -- good
+    enough for implied team totals, not for line shopping."""
+    resp = httpx.get(ESPN_SCOREBOARD, params={"seasontype": 2, "week": week, "dates": season},
+                     timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    conn = get_db()
+    n = 0
+    for ev in resp.json().get("events", []):
+        comp = ev["competitions"][0]
+        sides = {c["homeAway"]: ESPN_TEAM_FIX.get(c["team"]["abbreviation"], c["team"]["abbreviation"])
+                 for c in comp["competitors"]}
+        home, away = sides.get("home"), sides.get("away")
+        if (home, away) not in week_pairs:
+            continue
+        odds = (comp.get("odds") or [{}])[0]
+        details, total = (odds.get("details") or "").strip(), odds.get("overUnder")
+        if not details or total is None:
+            continue  # line not posted (or game already final) -- never fabricate one
+        if details.upper() in ("EVEN", "PK", "PICK"):
+            spread_home = 0.0
+        else:
+            m = re.match(r"([A-Z]+)\s+([-+]?\d+(?:\.\d+)?)", details)
+            if not m:
+                continue
+            fav = ESPN_TEAM_FIX.get(m.group(1), m.group(1))
+            line = float(m.group(2))
+            spread_home = line if fav == home else -line
+        _upsert_game_odds(conn, season, week, home, away, ev.get("date"), spread_home, float(total), 1)
+        n += 1
+    conn.commit()
+    conn.close()
+    print(f"wrote {n} game_odds rows for season {season} week {week} (ESPN scoreboard, single provider)")
+
+
 def cmd_sync_odds(season: int, week: int) -> None:
     """Pull NFL spreads/totals from The Odds API (requires ODDS_API_KEY in
     .env -- paid tier, api.the-odds-api.com), average across whatever
@@ -1029,16 +1091,18 @@ def cmd_sync_odds(season: int, week: int) -> None:
     no season/week concept of its own -- games are matched to this
     season/week by home/away team pair against nflreadpy's own schedule, so
     only games nflreadpy already has scheduled for this week get a row.
+    Without ODDS_API_KEY, falls back to ESPN's free public scoreboard.
     """
-    if not ODDS_API_KEY:
-        print("ODDS_API_KEY not set in .env -- sign up at the-odds-api.com and add it first. Skipping.")
-        return
-
     all_games = nfl.load_schedules(seasons=season)
     schedule = all_games.filter(all_games["week"] == week).to_dicts()
     week_pairs = {(g["home_team"], g["away_team"]) for g in schedule}
     if not week_pairs:
         print(f"no schedule rows for season {season} week {week} -- nothing to match odds against")
+        return
+
+    if not ODDS_API_KEY:
+        print("ODDS_API_KEY not set in .env -- using ESPN's public scoreboard odds instead.")
+        _sync_odds_espn(season, week, week_pairs)
         return
 
     name_to_abbr = _team_name_crosswalk()
@@ -1075,20 +1139,8 @@ def cmd_sync_odds(season: int, week: int) -> None:
 
         spread_home = sum(spreads) / len(spreads)
         total = sum(totals) / len(totals)
-        home_implied = (total - spread_home) / 2
-        away_implied = (total + spread_home) / 2
-
-        conn.execute(
-            "INSERT INTO game_odds (season, week, home_team, away_team, commence_time, spread_home, total, "
-            "home_implied_total, away_implied_total, bookmaker_count, synced_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
-            "ON CONFLICT(season, week, home_team, away_team) DO UPDATE SET "
-            "commence_time=excluded.commence_time, spread_home=excluded.spread_home, total=excluded.total, "
-            "home_implied_total=excluded.home_implied_total, away_implied_total=excluded.away_implied_total, "
-            "bookmaker_count=excluded.bookmaker_count, synced_at=excluded.synced_at",
-            (season, week, home_abbr, away_abbr, ev.get("commence_time"), round(spread_home, 1), round(total, 1),
-             round(home_implied, 1), round(away_implied, 1), len(ev.get("bookmakers", []))),
-        )
+        _upsert_game_odds(conn, season, week, home_abbr, away_abbr, ev.get("commence_time"),
+                          spread_home, total, len(ev.get("bookmakers", [])))
         n += 1
     conn.commit()
     conn.close()
@@ -2980,7 +3032,11 @@ DK_CLASSIC_SLOTS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "DST"]
 
 
 def _norm_name(name: str) -> str:
-    return re.sub(r"[^a-z]", "", name.lower())
+    """Lowercase letters only, generational suffix dropped -- DK lists
+    "Deebo Samuel Sr." / "Ollie Gordon II" where Sleeper may not."""
+    n = re.sub(r"[.']", "", name.lower())
+    n = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", n)
+    return re.sub(r"[^a-z]", "", n)
 
 
 def _dk_slot_eligible(position: str | None, slot: str) -> bool:
@@ -2989,6 +3045,151 @@ def _dk_slot_eligible(position: str | None, slot: str) -> bool:
     if slot == "FLEX":
         return position in ("RB", "WR", "TE")
     return position == slot
+
+
+# DK salary-CSV Status values that mean the player won't play. "Q" stays in
+# the pool (flagged in output) -- most Questionables play.
+DK_INACTIVE_STATUSES = {"OUT", "O", "IR", "D", "SUSP", "PUP", "NFI"}
+# Non-QB/K/DST players need at least this average offensive snap share over
+# their last 3 games to be eligible. Week-5 2026 retro: min-price Showdown
+# punts with no real role (Ryan Miller 0.15, Cody White 0.00, Brady Russell
+# 0.25) all scored ~0; the cheap plays that hit had real snaps (DeMario
+# Douglas 0.54, Samaje Perine 0.36, Kyle Williams 0.27).
+DEFAULT_MIN_SNAP = 0.25
+# Refuse to optimize on projections older than this -- the week-5 retro's
+# biggest miss was 4-day-old projections (MAE 7.0 DK pts, WRs worst).
+PROJECTION_MAX_AGE_HOURS = 18
+
+
+def _dk_name_crosswalk(conn: sqlite3.Connection):
+    """Returns resolve(name, position, team) -> sleeper player_id or None:
+    normalized name + team first, then name alone if it's unambiguous. DST
+    rows resolve straight to the team code, matching how sync-stats stores
+    team defenses (player_id = team code)."""
+    by_name_team: dict[tuple[str, str], str] = {}
+    by_name_only: dict[str, list[str]] = {}
+    for pid, full_name, team in conn.execute("SELECT player_id, full_name, team FROM players"):
+        if not full_name:
+            continue
+        n = _norm_name(full_name)
+        by_name_team[(n, TEAM_CODE_FIX.get(team, team) or "")] = pid
+        by_name_only.setdefault(n, []).append(pid)
+
+    def resolve(name: str, position: str, team: str) -> str | None:
+        if position == "DST":
+            return team or None
+        n = _norm_name(name)
+        pid = by_name_team.get((n, team))
+        if pid is None:
+            candidates = by_name_only.get(n, [])
+            pid = candidates[0] if len(candidates) == 1 else None
+        return pid
+
+    return resolve
+
+
+def _recent_snap_share(conn: sqlite3.Connection, season: int, week: int, n: int = 3) -> dict[str, float]:
+    """player_id -> average snap_pct over his last n games before `week`."""
+    by_player: dict[str, list[float]] = {}
+    for pid, snap in conn.execute(
+        "SELECT player_id, snap_pct FROM weekly_stats WHERE season = ? AND week < ? "
+        "AND snap_pct IS NOT NULL ORDER BY week", (season, week),
+    ):
+        by_player.setdefault(pid, []).append(snap)
+    return {pid: sum(v[-n:]) / len(v[-n:]) for pid, v in by_player.items()}
+
+
+def _dfs_eligibility_filter(pool: list[dict], snaps: dict[str, float], min_snap: float,
+                            salary_key: str) -> tuple[list[dict], list[str]]:
+    """Shared Classic/Showdown pool filter. Drops (1) DK-listed inactives,
+    (2) backup QBs -- any QB priced below his team's top-priced healthy QB;
+    DK's own pricing knows the depth chart better than a projection built
+    from prior weeks (week-5 2026: Keenum/Lock/Wentz projected like starters,
+    scored 2.7/0.0/backup), and (3) RB/WR/TE below min_snap recent snap share,
+    or with no snap history at all once the season has any (skipped entirely
+    when `snaps` is empty, i.e. week 1, and for players we couldn't
+    crosswalk -- no sleeper_id means unknown, not zero). Returns (kept,
+    notes) where notes name any notable exclusion a human should
+    sanity-check."""
+    top_qb: dict[str, int] = {}
+    for p in pool:
+        if p["position"] == "QB" and (p.get("status") or "") not in DK_INACTIVE_STATUSES:
+            top_qb[p["team"]] = max(top_qb.get(p["team"], 0), p[salary_key] or 0)
+    kept, notes = [], []
+    n_inactive = n_backup = n_snap = 0
+    for p in pool:
+        if (p.get("status") or "") in DK_INACTIVE_STATUSES:
+            n_inactive += 1
+            continue
+        if p["position"] == "QB" and (p[salary_key] or 0) < top_qb.get(p["team"], 0):
+            n_backup += 1
+            continue
+        if snaps and p["position"] in ("RB", "WR", "TE") and p.get("sleeper_id"):
+            share = snaps.get(p["sleeper_id"])
+            if share is None or share < min_snap:
+                n_snap += 1
+                if (p[salary_key] or 0) >= 6000:
+                    why = "no snap history" if share is None else f"snap share {share:.0%}"
+                    notes.append(f"excluded {p['name']} ({p['team']} {p['position']}, ${p[salary_key]:,}): {why}")
+                continue
+        kept.append(p)
+    notes.insert(0, f"pool filter: {n_inactive} inactive, {n_backup} backup QBs, "
+                    f"{n_snap} below {min_snap:.0%} snap share removed")
+    return kept, notes
+
+
+def _require_fresh(conn: sqlite3.Connection, season: int, week: int, allow_stale: bool) -> None:
+    """Gate the DFS optimizers on same-day data: projections for this week
+    generated within PROJECTION_MAX_AGE_HOURS, and weekly_stats synced
+    through the prior week. Missing odds is a warning only (project still
+    runs without them, it just loses the implied-total signal)."""
+    problems = []
+    row = conn.execute(
+        "SELECT MAX(generated_at) FROM projections WHERE season = ? AND week = ?", (season, week)
+    ).fetchone()
+    if not row or not row[0]:
+        problems.append(f"no projections for season {season} week {week}")
+    else:
+        gen = datetime.datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+        age_h = (datetime.datetime.now(datetime.timezone.utc) - gen).total_seconds() / 3600
+        if age_h > PROJECTION_MAX_AGE_HOURS:
+            problems.append(f"projections are {age_h:.0f}h old (limit {PROJECTION_MAX_AGE_HOURS}h)")
+    if week > 1:
+        last = conn.execute("SELECT MAX(week) FROM weekly_stats WHERE season = ?", (season,)).fetchone()[0]
+        if not last or last < week - 1:
+            problems.append(f"weekly_stats only through week {last} (need week {week - 1})")
+    n_odds = conn.execute("SELECT COUNT(*) FROM game_odds WHERE season = ? AND week = ?", (season, week)).fetchone()[0]
+    if not n_odds:
+        print(f"warning: no game_odds for week {week} -- projections lack the Vegas implied-total signal")
+    if problems:
+        msg = "; ".join(problems)
+        if allow_stale:
+            print(f"warning (--allow-stale): {msg}")
+        else:
+            raise SystemExit(f"stale data: {msg}. Run `dfs-refresh --week {week}` first "
+                             f"(or pass --allow-stale to override).")
+
+
+def cmd_dfs_refresh(season: int, week: int) -> None:
+    """Morning-of-slate refresh, in dependency order: stats + injuries
+    (whole season, picks up stat corrections), Vegas odds, weekly rankings,
+    in-house projections, then the blend. Odds and rankings are best-effort
+    (a failed source only weakens the projection); stats and project are
+    required, so a failure there stops the run."""
+    print(f"== dfs-refresh season {season} week {week}")
+    cmd_sync_stats(season, None)
+    for label, fn in (("sync-odds", lambda: cmd_sync_odds(season, week)),
+                      ("sync-weekly-rankings", lambda: cmd_sync_weekly_rankings(season, week, True))):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 -- optional signal, keep going
+            print(f"warning: {label} failed ({e}) -- continuing without it")
+    cmd_project(season, week)
+    try:
+        cmd_blend_projections(season, week, True)
+    except Exception as e:  # noqa: BLE001
+        print(f"warning: blend-projections failed ({e}) -- optimizers will use heuristic-v1 only")
+    print("dfs-refresh done -- optimize-dk / optimize-showdown are clear to run")
 
 
 def cmd_sync_dk(filepath: str, season: int, week: int) -> None:
@@ -3001,16 +3202,7 @@ def cmd_sync_dk(filepath: str, season: int, week: int) -> None:
     matching how sync-stats stores team defenses (player_id = team code)."""
     conn = get_db()
     conn.row_factory = sqlite3.Row
-    all_players = conn.execute("SELECT player_id, full_name, team FROM players").fetchall()
-    by_name_team: dict[tuple[str, str], str] = {}
-    by_name_only: dict[str, list[str]] = {}
-    for p in all_players:
-        if not p["full_name"]:
-            continue
-        n = _norm_name(p["full_name"])
-        team = TEAM_CODE_FIX.get(p["team"], p["team"]) or ""
-        by_name_team[(n, team)] = p["player_id"]
-        by_name_only.setdefault(n, []).append(p["player_id"])
+    resolve = _dk_name_crosswalk(conn)
 
     n_rows, n_matched, n_skipped = 0, 0, 0
     with open(filepath, newline="", encoding="utf-8-sig") as f:
@@ -3024,14 +3216,7 @@ def cmd_sync_dk(filepath: str, season: int, week: int) -> None:
                 continue
             n_rows += 1
 
-            if position == "DST":
-                sleeper_id = team or None
-            else:
-                norm = _norm_name(name)
-                sleeper_id = by_name_team.get((norm, team))
-                if sleeper_id is None:
-                    candidates = by_name_only.get(norm, [])
-                    sleeper_id = candidates[0] if len(candidates) == 1 else None
+            sleeper_id = resolve(name, position, team)
             if sleeper_id:
                 n_matched += 1
             else:
@@ -3041,19 +3226,20 @@ def cmd_sync_dk(filepath: str, season: int, week: int) -> None:
             avg_pts = row.get("AvgPointsPerGame")
             conn.execute(
                 "INSERT INTO dk_salaries (season, week, dk_player_id, name, position, roster_position, "
-                "team, salary, game_info, avg_points_per_game, sleeper_id, imported_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
+                "team, salary, game_info, avg_points_per_game, sleeper_id, status, imported_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
                 "ON CONFLICT(season, week, dk_player_id) DO UPDATE SET "
                 "name=excluded.name, position=excluded.position, roster_position=excluded.roster_position, "
                 "team=excluded.team, salary=excluded.salary, game_info=excluded.game_info, "
                 "avg_points_per_game=excluded.avg_points_per_game, sleeper_id=excluded.sleeper_id, "
-                "imported_at=excluded.imported_at",
+                "status=excluded.status, imported_at=excluded.imported_at",
                 (
                     season, week, dk_id, name, position, row.get("Roster Position"), team,
                     int(salary) if salary else None,
                     row.get("Game Info"),
                     float(avg_pts) if avg_pts else None,
                     sleeper_id,
+                    (row.get("Status") or "").strip() or None,
                 ),
             )
     conn.commit()
@@ -3063,7 +3249,8 @@ def cmd_sync_dk(filepath: str, season: int, week: int) -> None:
           f"projection and fall back to DK's own AvgPointsPerGame in optimize-dk)")
 
 
-def compute_dk_lineup(conn: sqlite3.Connection, season: int, week: int, stack: bool) -> dict:
+def compute_dk_lineup(conn: sqlite3.Connection, season: int, week: int, stack: bool,
+                      min_snap: float = DEFAULT_MIN_SNAP) -> dict:
     """DK Classic lineup via PuLP ILP: maximize total projected points subject
     to the $50,000 salary cap and the 9-slot Classic roster (QB, 2xRB, 3xWR,
     TE, FLEX, DST), with FLEX eligible to RB/WR/TE. Projection preference is
@@ -3095,7 +3282,9 @@ def compute_dk_lineup(conn: sqlite3.Connection, season: int, week: int, stack: b
         pool.append({
             "dk_player_id": r["dk_player_id"], "name": r["name"], "position": r["position"],
             "team": r["team"], "salary": r["salary"], "proj_points": proj_points, "proj_source": proj_source,
+            "status": r["status"], "sleeper_id": r["sleeper_id"],
         })
+    pool, filter_notes = _dfs_eligibility_filter(pool, _recent_snap_share(conn, season, week), min_snap, "salary")
 
     prob = pulp.LpProblem("dk_classic_lineup", pulp.LpMaximize)
     x = {}
@@ -3139,15 +3328,17 @@ def compute_dk_lineup(conn: sqlite3.Connection, season: int, week: int, stack: b
     return {
         "season": season, "week": week, "stack": stack, "starters": starters,
         "total_salary": total_salary, "total_proj_points": round(total_proj, 2),
-        "salary_remaining": DK_SALARY_CAP - total_salary,
+        "salary_remaining": DK_SALARY_CAP - total_salary, "filter_notes": filter_notes,
     }
 
 
-def cmd_optimize_dk(season: int, week: int, contest_type: str, stack: bool | None) -> None:
+def cmd_optimize_dk(season: int, week: int, contest_type: str, stack: bool | None,
+                    min_snap: float = DEFAULT_MIN_SNAP, allow_stale: bool = False) -> None:
     if stack is None:
         stack = contest_type == "gpp"  # cash games: take the median, no need to correlate; GPP: chase ceiling
     conn = get_db()
-    lineup = compute_dk_lineup(conn, season, week, stack)
+    _require_fresh(conn, season, week, allow_stale)
+    lineup = compute_dk_lineup(conn, season, week, stack, min_snap)
     conn.execute(
         "INSERT INTO dk_lineups (season, week, contest_type, lineup_json, total_salary, total_proj_points, "
         "generated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
@@ -3160,13 +3351,173 @@ def cmd_optimize_dk(season: int, week: int, contest_type: str, stack: bool | Non
     conn.close()
     print(f"DK Classic lineup — week {week} ({season}), {contest_type}"
           f"{' + stacked' if stack else ''}")
+    for note in lineup["filter_notes"]:
+        print(f"  {note}")
     for s in lineup["starters"]:
         p = s["player"]
         src = "" if p["proj_source"] == "heuristic-v1" else f" [{p['proj_source']}]"
-        print(f"  {s['slot']:5} {p['name']:25} {p['team'] or '':4} ${p['salary']:6,} {p['proj_points']:5.1f}{src}")
+        q = " Q" if p.get("status") == "Q" else ""
+        print(f"  {s['slot']:5} {p['name']:25} {p['team'] or '':4} ${p['salary']:6,} {p['proj_points']:5.1f}{src}{q}")
     print(f"  salary: ${lineup['total_salary']:,} / ${DK_SALARY_CAP:,} "
           f"(${lineup['salary_remaining']:,} remaining) — proj total: {lineup['total_proj_points']}")
     print("  Analysis only — enter this lineup on DraftKings yourself, never submitted automatically.")
+
+
+# Showdown captain boost for the favored team's QB/RB: +3% per point of
+# spread, capped at 10 points. Week-5 2026 retro: in 4 of 6 games the
+# hindsight-optimal CPT was the winning side's top scorer, usually the
+# favorite's lead RB (Warren, Gibbs) -- our value-driven TE captains
+# (LaPorta, Kittle) were projection-per-dollar artifacts.
+SHOWDOWN_FAV_CPT_PER_POINT = 0.03
+SHOWDOWN_BLOCKED_CPT = {"K", "DST"}
+
+
+def compute_showdown_lineups(conn: sqlite3.Connection, filepath: str, season: int, week: int,
+                             min_snap: float, allow_te_cpt: bool, n_lineups: int) -> dict:
+    """DK Showdown Captain Mode via PuLP ILP: 1 CPT (1.5x points, CSV's own
+    1.5x CPT salary) + 5 FLEX under $50,000, both teams represented (DK
+    rule). Reads a hand-exported Showdown salary CSV directly instead of
+    dk_salaries, since a week has many Showdown slates and each lists every
+    player twice (CPT + FLEX rows) -- storing them would pollute
+    optimize-dk's Classic pool. Same projection preference and pool filter
+    as optimize-dk. Captain rules: K/DST never, TE only with allow_te_cpt,
+    and the favored team's QB/RB get a spread-based boost in the CPT slot
+    only (reported projections stay unboosted). Returns up to n_lineups
+    lineups with distinct captains. Analysis only."""
+    resolve = _dk_name_crosswalk(conn)
+    players: dict[tuple[str, str], dict] = {}
+    with open(filepath, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            name = (row.get("Name") or "").strip()
+            raw_team = (row.get("TeamAbbrev") or "").strip()
+            team = TEAM_CODE_FIX.get(raw_team, raw_team)
+            if not name:
+                continue
+            p = players.setdefault((name, team), {
+                "name": name, "team": team, "position": (row.get("Position") or "").strip(),
+                "status": (row.get("Status") or "").strip() or None,
+                "avg": float(row["AvgPointsPerGame"]) if row.get("AvgPointsPerGame") else None,
+                "game": (row.get("Game Info") or "").split(" ")[0],
+            })
+            slot = "cpt" if row.get("Roster Position") == "CPT" else "flex"
+            p[slot] = int(row["Salary"]) if row.get("Salary") else None
+            p[f"{slot}_id"] = (row.get("ID") or "").strip()
+    if not players:
+        raise SystemExit(f"no rows in {filepath}")
+
+    pool = []
+    for p in players.values():
+        if not p.get("cpt") or not p.get("flex"):
+            continue
+        p["sleeper_id"] = resolve(p["name"], p["position"], p["team"])
+        proj, src = None, None
+        if p["sleeper_id"]:
+            r = conn.execute("SELECT proj_points FROM projections WHERE player_id = ? AND season = ? AND week = ?",
+                             (p["sleeper_id"], season, week)).fetchone()
+            if r and r[0] is not None:
+                proj, src = r[0], "ours"
+        if proj is None and p["avg"]:
+            proj, src = p["avg"], "dk-avg-fallback"
+        if not proj or proj <= 0:
+            continue  # no data -- never fabricate a number
+        p["proj_points"], p["proj_source"] = proj, src
+        pool.append(p)
+    pool, notes = _dfs_eligibility_filter(pool, _recent_snap_share(conn, season, week), min_snap, "flex")
+
+    teams = sorted({p["team"] for p in pool})
+    if len(teams) != 2:
+        raise SystemExit(f"expected exactly 2 teams in a Showdown CSV, found {teams}")
+
+    # Vegas: game_odds stores nflverse codes ("LA"); DK uses "LAR"
+    to_nflverse = {v: k for k, v in TEAM_CODE_FIX.items()}
+    margin: dict[str, float] = {}
+    for t in teams:
+        r = conn.execute(
+            "SELECT home_team, spread_home FROM game_odds WHERE season = ? AND week = ? "
+            "AND (home_team = ? OR away_team = ?)",
+            (season, week, to_nflverse.get(t, t), to_nflverse.get(t, t)),
+        ).fetchone()
+        if r and r[1] is not None:
+            margin[t] = -r[1] if r[0] == to_nflverse.get(t, t) else r[1]
+    if not margin:
+        notes.append("no game_odds for this game -- captain favorite boost skipped (run sync-odds)")
+
+    def cpt_factor(p: dict) -> float:
+        m = margin.get(p["team"], 0.0)
+        if p["position"] in ("QB", "RB") and m > 0:
+            return 1 + SHOWDOWN_FAV_CPT_PER_POINT * min(m, 10.0)
+        return 1.0
+
+    blocked = set(SHOWDOWN_BLOCKED_CPT) | (set() if allow_te_cpt else {"TE"})
+    lineups, used_cpts = [], set()
+    for _ in range(n_lineups):
+        prob = pulp.LpProblem("dk_showdown", pulp.LpMaximize)
+        cp = {i: pulp.LpVariable(f"c_{i}", cat="Binary") for i in range(len(pool))}
+        fx = {i: pulp.LpVariable(f"f_{i}", cat="Binary") for i in range(len(pool))}
+        prob += pulp.lpSum(1.5 * pool[i]["proj_points"] * cpt_factor(pool[i]) * cp[i]
+                           + pool[i]["proj_points"] * fx[i] for i in cp)
+        prob += pulp.lpSum(cp.values()) == 1
+        prob += pulp.lpSum(fx.values()) == 5
+        prob += pulp.lpSum(pool[i]["cpt"] * cp[i] + pool[i]["flex"] * fx[i] for i in cp) <= DK_SALARY_CAP
+        for i in cp:
+            prob += cp[i] + fx[i] <= 1
+            if pool[i]["position"] in blocked or pool[i]["name"] in used_cpts:
+                prob += cp[i] == 0
+        for t in teams:
+            prob += pulp.lpSum(cp[i] + fx[i] for i in cp if pool[i]["team"] == t) >= 1
+        status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+        if pulp.LpStatus[status] != "Optimal":
+            break
+        cap = next(pool[i] for i in cp if cp[i].value() > 0.5)
+        flex = sorted((pool[i] for i in fx if fx[i].value() > 0.5), key=lambda p: -p["flex"])
+        used_cpts.add(cap["name"])
+        lineups.append({
+            "cpt": cap, "flex": flex,
+            "salary": cap["cpt"] + sum(p["flex"] for p in flex),
+            "proj": round(1.5 * cap["proj_points"] + sum(p["proj_points"] for p in flex), 2),
+        })
+    if not lineups:
+        raise SystemExit("solver found no feasible Showdown lineup -- pool too thin after filtering")
+    return {"game": pool[0]["game"], "margin": margin, "lineups": lineups, "notes": notes}
+
+
+def cmd_optimize_showdown(filepath: str, season: int, week: int, min_snap: float,
+                          allow_te_cpt: bool, n_lineups: int, allow_stale: bool) -> None:
+    conn = get_db()
+    _require_fresh(conn, season, week, allow_stale)
+    res = compute_showdown_lineups(conn, filepath, season, week, min_snap, allow_te_cpt, n_lineups)
+
+    def slim(p: dict, slot: str) -> dict:
+        return {"name": p["name"], "team": p["team"], "position": p["position"], "dk_id": p[f"{slot}_id"],
+                "salary": p[slot], "proj_points": p["proj_points"], "proj_source": p["proj_source"],
+                "status": p["status"]}
+
+    stored = [{"cpt": slim(lu["cpt"], "cpt"), "flex": [slim(p, "flex") for p in lu["flex"]],
+               "salary": lu["salary"], "proj": lu["proj"]} for lu in res["lineups"]]
+    conn.execute(
+        "INSERT INTO dk_lineups (season, week, contest_type, lineup_json, total_salary, total_proj_points, "
+        "generated_at) VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
+        "ON CONFLICT(season, week, contest_type) DO UPDATE SET "
+        "lineup_json=excluded.lineup_json, total_salary=excluded.total_salary, "
+        "total_proj_points=excluded.total_proj_points, generated_at=excluded.generated_at",
+        (season, week, f"showdown:{res['game']}", json.dumps(stored), stored[0]["salary"], stored[0]["proj"]),
+    )
+    conn.commit()
+    conn.close()
+
+    fav = ", ".join(f"{t} {'-' if m > 0 else '+'}{abs(m):g}" for t, m in res["margin"].items() if m > 0)
+    print(f"DK Showdown — {res['game']} week {week} ({season})" + (f" — favorite: {fav}" if fav else ""))
+    for note in res["notes"]:
+        print(f"  {note}")
+    for k, lu in enumerate(res["lineups"]):
+        print(f"  [{chr(65 + k)}] proj {lu['proj']:.1f}  salary ${lu['salary']:,}")
+        for slot, p in [("CPT", lu["cpt"])] + [("FLEX", p) for p in lu["flex"]]:
+            sal = p["cpt"] if slot == "CPT" else p["flex"]
+            pts = p["proj_points"] * (1.5 if slot == "CPT" else 1)
+            src = "" if p["proj_source"] == "ours" else f" [{p['proj_source']}]"
+            q = " Q" if p["status"] == "Q" else ""
+            print(f"     {slot:4} {p['name']:24} {p['position']:3} {p['team']:3} ${sal:6,} {pts:5.1f}{src}{q}")
+    print("  Analysis only — enter lineups on DraftKings yourself, never submitted automatically.")
 
 
 KEEPER_RULESETS = ("league_a", "league_b")
@@ -3596,7 +3947,7 @@ def main() -> None:
     project_p.add_argument("--week", type=int, required=True, help="NFL week to project")
     project_p.add_argument("--season", type=int, help="NFL season (default: nflreadpy's current season)")
 
-    odds_p = sub.add_parser("sync-odds", help="Pull Vegas spreads/totals via The Odds API (requires ODDS_API_KEY)")
+    odds_p = sub.add_parser("sync-odds", help="Pull Vegas spreads/totals via The Odds API (ODDS_API_KEY), else ESPN's free scoreboard")
     odds_p.add_argument("--week", type=int, required=True, help="NFL week")
     odds_p.add_argument("--season", type=int, help="NFL season (default: nflreadpy's current season)")
 
@@ -3647,6 +3998,27 @@ def main() -> None:
     stack_group.add_argument("--stack", dest="stack", action="store_true", default=None,
                               help="Force QB+same-team-WR/TE stacking (default: on for gpp, off for cash)")
     stack_group.add_argument("--no-stack", dest="stack", action="store_false")
+    optdk_p.add_argument("--min-snap", type=float, default=DEFAULT_MIN_SNAP,
+                         help="Min avg snap share over last 3 games for RB/WR/TE (default 0.25)")
+    optdk_p.add_argument("--allow-stale", action="store_true",
+                         help="Run even if projections/stats aren't refreshed for this slate")
+
+    optsd_p = sub.add_parser("optimize-showdown",
+                             help="Salary-cap ILP-optimal DK Showdown lineups from a hand-exported CSV (analysis only)")
+    optsd_p.add_argument("--file", required=True, help="Path to the DK Showdown salary CSV export")
+    optsd_p.add_argument("--season", type=int, required=True)
+    optsd_p.add_argument("--week", type=int, required=True)
+    optsd_p.add_argument("--min-snap", type=float, default=DEFAULT_MIN_SNAP,
+                         help="Min avg snap share over last 3 games for RB/WR/TE (default 0.25)")
+    optsd_p.add_argument("--allow-te-cpt", action="store_true", help="Allow a TE in the Captain slot")
+    optsd_p.add_argument("--lineups", type=int, default=2, help="Number of lineups, each with a distinct captain")
+    optsd_p.add_argument("--allow-stale", action="store_true",
+                         help="Run even if projections/stats aren't refreshed for this slate")
+
+    refresh_p = sub.add_parser("dfs-refresh",
+                               help="Morning-of-slate refresh: stats+injuries, odds, weekly rankings, project, blend")
+    refresh_p.add_argument("--season", type=int, default=None)
+    refresh_p.add_argument("--week", type=int, default=None, help="Slate week (default: Sleeper's current week)")
 
     rank_p = sub.add_parser("sync-rankings", help="Pull FantasyPros dynasty-overall ECR via nflreadpy")
     rank_p.add_argument("--season", type=int, required=True, help="Season these rankings apply to")
@@ -3792,7 +4164,12 @@ def main() -> None:
     elif args.command == "sync-dk":
         cmd_sync_dk(args.file, args.season, args.week)
     elif args.command == "optimize-dk":
-        cmd_optimize_dk(args.season, args.week, args.contest_type, args.stack)
+        cmd_optimize_dk(args.season, args.week, args.contest_type, args.stack, args.min_snap, args.allow_stale)
+    elif args.command == "optimize-showdown":
+        cmd_optimize_showdown(args.file, args.season, args.week, args.min_snap, args.allow_te_cpt,
+                              args.lineups, args.allow_stale)
+    elif args.command == "dfs-refresh":
+        cmd_dfs_refresh(args.season or nfl.get_current_season(), args.week or current_week())
     elif args.command == "sync-rankings":
         cmd_sync_rankings(args.season, args.force)
     elif args.command == "sync-weekly-rankings":
