@@ -67,7 +67,7 @@
       "name": "concierge-fantasy",
       "source": "./plugins/concierge-fantasy",
       "description": "Tracks Sleeper leagues and DraftKings NFL DFS. Local rosters/stats/optimization, weekly recommendations via local Ollama, VBD draft board, live draft-day pick signals. Read-only on DraftKings.",
-      "version": "0.1.0",
+      "version": "0.2.1",
       "category": "productivity"
     },
     {
