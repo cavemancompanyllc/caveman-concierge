@@ -9,7 +9,7 @@ Produces one decision-ready plan per league: what to claim and for how much, wha
 to drop to pay for it, what to stash on IR, and what to leave alone.
 
 Runs Tuesday, before waivers process. Sleeper's weekly batch clears ~2:00 AM CT
-Wednesday and ESPN processes daily at 11:00 AM CT except Tuesday, so Tuesday
+Wednesday and ESPN processes daily at ~6:00 AM CT except Tuesday (`waiverProcessHour` is UTC), so Tuesday
 evening is the last point where a claim can still be entered for every league.
 
 ## The core idea
@@ -123,13 +123,42 @@ Per league, read the actual settings:
 - **ESPN:** `isUsingAcquisitionBudget` (false = priority), `waiverProcessDays`,
   `waiverProcessHour`, and critically **`waiverOrderReset`** — if true, priority
   resets weekly and is cheap to spend; if false it rolls and is a season-long
-  asset worth hoarding.
-- Position limits (`position_limit_wr` etc.) that could reject an add.
+  asset worth hoarding. **`waiverProcessHour` is UTC**, not local time: a value of
+  11 means ~6:00 AM Central. Reading it as local time puts the deadline five hours
+  too late.
+- Position limits (`position_limit_wr` etc.) that could reject an add. ESPN
+  enforces its own per-position roster maximum (e.g. 8 WR) server-side and rejects
+  the claim with `TRAN_ROSTER_POSITION_LIMIT_EXCEEDED`. Pair the claim with a
+  same-position drop.
 
 **In a rolling-priority league you get one guaranteed claim per run** — winning
 sends you to last. So plan exactly one contested claim per league and take
 everything else free after the batch clears. Spending a #1 priority on a
-streamer is a real, season-long loss.
+streamer is a real, season-long loss. You can still queue extra claims behind it
+at no cost. In Sleeper they process in the order you submitted them, so put the
+most-contested player first (the week's headline add, e.g. an injury
+replacement), and put the lower-profile breakout second, where he may go
+unclaimed anyway.
+
+**Do not trust a "free after clearing" label on the week's headline add.** A
+starter's backup who inherits the job because of a weekend injury will be claimed
+in every league. Only genuinely low-profile players survive the batch.
+
+**Several managed teams in one league share one waiver pool.** When the caller
+manages more than one team in the same league (e.g. a parent plus kids' teams),
+give each team a different target, ordered by need and by who holds the better
+priority. Never let two of them claim the same player.
+
+**Execution checks (when the caller authorizes moves):**
+- **Sleeper:** the player row's `add` / `waiver` button class can be stale. Late
+  Tuesday, every unrostered player showed `add`, yet the server rejected the add
+  with "At least one of the players being added in is on waivers". A real claim is
+  the `submit_waiver_claim` mutation, not `league_create_transaction(type:
+  "free_agent")`. Confirm every claim landed in the team's WAIVER tab under "My
+  Waivers".
+- **ESPN:** if the browser session has expired (MyDisney login wall), ESPN's own
+  `lm-api-writes` transactions endpoint works with the league cookies alone.
+  `executionType: "VALIDATE"` is rejected, so every call executes for real.
 
 ### 6. Roster spots: IR before dropping
 
