@@ -71,19 +71,18 @@ format, say), that's a signal to extend the patterns in
 
 ## Advisory eval check (optional, before committing)
 
-Some instances keep an eval harness for their subagents (a script like
-`scripts/eval_harness.py` with a `which-agents` subcommand, in the instance
-repo). If the instance repo has one and you're committing a staged file
-matching `.claude/agents/<name>.md`, run:
+Workspaces can keep eval cases for their subagents in the caveman-core ledger
+(`cavecore eval`). If you're committing a staged file matching
+`.claude/agents/<name>.md`, run:
 
 ```
-python scripts/eval_harness.py which-agents
+python -m caveman_core eval which-agents
 ```
 
 If `<name>` appears in that list, run its eval suite:
 
 ```
-python scripts/eval_harness.py run all --agent <name> --trigger git_commit
+python -m caveman_core eval run all --agent <name> --trigger git_commit
 ```
 
 This is **advisory only** — never block or delay the commit on the result,

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-git",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Git commit/branch/merge subagent with a mandatory pre-commit secret scan. Optionally manages a second, independently-versioned repo (e.g. a notes vault) alongside the instance repo.",
   "author": {
     "name": "Mike",
