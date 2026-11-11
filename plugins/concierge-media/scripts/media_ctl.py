@@ -710,7 +710,14 @@ def maybe_condense(text: str, instruction: str, brief: bool) -> str:
     if not brief or len(text) < 1500:
         return text
     try:
-        sys.path.insert(0, str(ROOT / "scripts"))
+        # local_llm lives in the concierge-local-llm plugin; find whichever version is
+        # installed for this workspace (old instances kept a copy in scripts/).
+        try:
+            from caveman_core import paths as cc_paths, runner as cc_runner  # noqa: PLC0415
+            llm_dir = cc_runner.find_script(cc_paths.resolve(), "concierge-local-llm", "local_llm.py").parent
+        except Exception:  # noqa: BLE001 - --brief must never break a command
+            llm_dir = ROOT / "scripts"
+        sys.path.insert(0, str(llm_dir))
         from local_llm import LocalLLMError, condense  # noqa: PLC0415
 
         try:
