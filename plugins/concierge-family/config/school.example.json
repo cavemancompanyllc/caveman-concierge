@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to <instance>/config/school.json. Kid slugs are lowercase, one per child, and are what `school_db.py --kid` accepts. title_stopwords are words to ignore when matching event titles across emails (your school's name, grade labels like 2nd or 4th, a teacher's surname that appears in every subject).",
+  "kids": ["kid1", "kid2"],
+  "title_stopwords": ["springfield", "2nd", "4th"]
+}

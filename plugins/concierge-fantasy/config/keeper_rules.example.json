@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy to <instance>/config/keeper_rules.json. Each key under applies_to is a ruleset name you pass to `fantasy_index.py sync-draft-history --ruleset <name>`; the first one is the default for imports that don't name one. Never apply one league's ruleset to another league.",
+  "max_keepers_per_team": 3,
+  "max_consecutive_keeps_per_player": 2,
+  "applies_to": {
+    "league_a": {
+      "cost_step_per_year": 2,
+      "undrafted_cost_round": 13,
+      "blocked_rounds": [1, 2],
+      "dated_pickup_ineligible": true,
+      "note": "cost = previous draft round - 2; waiver/FA pickup enters at round 13"
+    },
+    "league_b": {
+      "cost_step_per_year": 1,
+      "undrafted_cost_round": 16,
+      "note": "cost = previous draft round - 1; undrafted valued at round 17, so cost 16"
+    }
+  },
+  "reminders": []
+}

@@ -96,8 +96,9 @@ campus / district closure). Keep the rest short and specific:
 `[School] No School — Fall Break`.
 
 **Times**: all-day event (date only, end = next day) when no time is given.
-With a time, default 1 hour unless the mail gives an end. Timezone is
-the instance's local timezone (set it in config/school-mail-routing.md).
+With a time, default 1 hour unless the mail gives an end. Use the
+instance's local timezone (state it, with its current UTC offset and next
+DST change, in `config/school-mail-routing.md`).
 
 **Description** (event or task notes), plain text:
 ```

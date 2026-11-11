@@ -32,7 +32,8 @@ DATA_DIR = ROOT / "data" / "finance"
 INBOX_DIR = DATA_DIR / "inbox"
 ARCHIVE_DIR = DATA_DIR / "archive"
 DB_PATH = ROOT / "data" / "finance.db"
-CARD_BENEFITS_PATH = ROOT / "scripts" / "card_benefits.json"
+# Card benefit caps are per-person data, so they live in the instance config.
+CARD_BENEFITS_PATH = ROOT / "config" / "card_benefits.json"
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gpt-oss:20b"
@@ -401,7 +402,8 @@ def cmd_search(query: str) -> None:
 
 
 def cmd_benefits(month: str | None) -> None:
-    """Cross-reference categorized Chase transactions against premium travel card's benefit caps. Matching is heuristic (merchant substring or
+    """Cross-reference categorized card transactions against the card's
+    benefit caps listed in config/card_benefits.json. Matching is heuristic (merchant substring or
     category) — treat results as directional, not an exact statement audit.
     """
     if not CARD_BENEFITS_PATH.exists():
@@ -469,7 +471,7 @@ def cmd_benefits(month: str | None) -> None:
         ).fetchone()
         return row[0]
 
-    print(f"premium travel card benefit usage — as of {month}\n")
+    print(f"{config.get('card', 'Card')} benefit usage — as of {month}\n")
     for b in config["benefits"]:
         name = b["name"]
         period = b["period"]
@@ -527,7 +529,7 @@ def main() -> None:
     search_p = sub.add_parser("search", help="Search transactions by description substring")
     search_p.add_argument("query")
 
-    benefits_p = sub.add_parser("benefits", help="premium travel card benefit usage vs. card_benefits.json")
+    benefits_p = sub.add_parser("benefits", help="Card benefit usage vs. config/card_benefits.json")
     benefits_p.add_argument("--month", help="YYYY-MM (default: current month)")
 
     args = parser.parse_args()

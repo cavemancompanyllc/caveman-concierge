@@ -35,7 +35,9 @@ Campus vs district senders. Note any shared address that must be split by
 display name or subject.
 
 ## Hard exclusions
-Senders/patterns that must never be processed (unrelated mail sent from the district domain, known compromised accounts, kids' personal account mail).
+Senders/patterns that must never be processed (unrelated mail that happens
+to come from the district domain, known compromised accounts, kids' personal
+account mail).
 
 ## Unknown senders
 Logged as `unrouted`, never create events/tasks.

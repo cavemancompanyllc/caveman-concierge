@@ -29,11 +29,33 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd()) / "data" / "school.db"
+HOME = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
+DB_PATH = HOME / "data" / "school.db"
+CONFIG_PATH = HOME / "config" / "school.json"
 
 NOW = "strftime('%Y-%m-%dT%H:%M:%SZ','now')"
 
-KIDS = ("kid1", "kid2", "school", "district")
+# Shared buckets every instance has, alongside its own kid slugs.
+BUCKETS = ("school", "district")
+
+
+def load_config() -> dict:
+    """Read the instance's config/school.json (see config/school.example.json
+    in this plugin). Kid slugs and school-specific title stopwords are
+    per-family data, so they live in the instance, never in this plugin."""
+    if not CONFIG_PATH.exists():
+        sys.exit(
+            f"missing {CONFIG_PATH} -- copy school.example.json from the "
+            "concierge-family plugin's config/ folder and list your kid slugs"
+        )
+    cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    kids = tuple(k.strip().lower() for k in cfg.get("kids", []) if k.strip())
+    if not kids:
+        sys.exit(f"{CONFIG_PATH}: \"kids\" must list at least one kid slug")
+    clash = set(kids) & {*BUCKETS, "ignored"}
+    if clash:
+        sys.exit(f"{CONFIG_PATH}: kid slugs may not be {sorted(clash)}")
+    return {"kids": kids, "stopwords": {w.lower() for w in cfg.get("title_stopwords", [])}}
 
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS messages (
@@ -41,7 +63,7 @@ CREATE TABLE IF NOT EXISTS messages (
     received TEXT,
     sender TEXT,
     subject TEXT,
-    kid TEXT NOT NULL CHECK (kid IN ('kid1','kid2','school','district','ignored')),
+    kid TEXT NOT NULL,
     category TEXT,
     summary TEXT,
     processed_at TEXT NOT NULL DEFAULT ({NOW})
@@ -54,7 +76,7 @@ CREATE INDEX IF NOT EXISTS IX_messages_received ON messages(received);
 -- history is a JSON list of prior dates when a reschedule was applied.
 CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kid TEXT NOT NULL CHECK (kid IN ('kid1','kid2','school','district')),
+    kid TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('event','task')),
     title TEXT NOT NULL,
     norm_title TEXT NOT NULL,
@@ -72,7 +94,7 @@ CREATE INDEX IF NOT EXISTS IX_items_start ON items(start);
 
 CREATE TABLE IF NOT EXISTS roster (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kid TEXT NOT NULL CHECK (kid IN ('kid1','kid2')),
+    kid TEXT NOT NULL,
     school_year TEXT NOT NULL,
     name TEXT NOT NULL,
     email TEXT,
@@ -87,11 +109,16 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
+# Generic title noise. Kid slugs and the instance's title_stopwords (school
+# name, grade labels) are added from config in main(). Kid values are
+# validated by argparse choices rather than SQL CHECKs so the kid list can
+# change without a schema migration.
 STOPWORDS = {
     "a", "an", "the", "and", "or", "of", "for", "to", "at", "in", "on", "is",
     "school", "grade", "class",
     "new", "date", "update", "updated", "reminder", "rescheduled", "moved",
 }
+KID_SLUGS: tuple[str, ...] = ()
 
 
 def connect() -> sqlite3.Connection:
@@ -135,7 +162,7 @@ def cmd_seen(args) -> None:
 
     --routed-only treats messages the scan looked at but ignored as unseen,
     so the morning rundown can drop school mail without also dropping
-    things like unrelated district-domain mail that the scan deliberately skipped.
+    unrelated district-domain mail that the scan deliberately skipped.
     """
     conn = connect()
     sql = f"SELECT gmail_id FROM messages WHERE gmail_id IN ({','.join('?' * len(args.ids))})"
@@ -191,7 +218,7 @@ def cmd_item_find(args) -> None:
     proposed = date_part(args.date)
     lo = (proposed - timedelta(days=args.window)).isoformat()
     hi = (proposed + timedelta(days=args.window)).isoformat() + "~"
-    kids = {args.kid, "school"} if args.kid in ("kid1", "kid2") else {args.kid}
+    kids = {args.kid, "school"} if args.kid in KID_SLUGS else {args.kid}
     rows = conn.execute(
         f"""SELECT * FROM items WHERE status='active' AND start BETWEEN ? AND ?
             AND kid IN ({','.join('?' * len(kids))})""",
@@ -318,6 +345,11 @@ def cmd_kv(args) -> None:
 
 
 def main() -> None:
+    global KID_SLUGS
+    cfg = load_config()
+    KID_SLUGS = cfg["kids"]
+    STOPWORDS.update(KID_SLUGS, cfg["stopwords"])
+    KIDS = KID_SLUGS + BUCKETS
     p = argparse.ArgumentParser(description="School tracking state store")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -370,7 +402,7 @@ def main() -> None:
     s.set_defaults(fn=cmd_item_update)
     s = item.add_parser("upcoming")
     s.add_argument("--days", type=int, default=7)
-    s.add_argument("--kid", choices=("kid1", "kid2"))
+    s.add_argument("--kid", choices=KID_SLUGS)
     s.add_argument("--from-date")
     s.set_defaults(fn=cmd_item_upcoming)
     s = item.add_parser("changed")
@@ -379,7 +411,7 @@ def main() -> None:
 
     roster = sub.add_parser("roster").add_subparsers(dest="sub", required=True)
     s = roster.add_parser("set")
-    s.add_argument("--kid", required=True, choices=("kid1", "kid2"))
+    s.add_argument("--kid", required=True, choices=KID_SLUGS)
     s.add_argument("--year", required=True, help="e.g. 2026-27")
     s.add_argument("--name", required=True)
     s.add_argument("--email")
@@ -387,7 +419,7 @@ def main() -> None:
     s.set_defaults(fn=cmd_roster_set)
     s = roster.add_parser("list")
     s.add_argument("--year")
-    s.add_argument("--kid", choices=("kid1", "kid2"))
+    s.add_argument("--kid", choices=KID_SLUGS)
     s.set_defaults(fn=cmd_roster_list)
 
     s = sub.add_parser("kv", help="Get (no value) or set a bookkeeping key")

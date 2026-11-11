@@ -15,7 +15,7 @@ full rationale — short version:
   env var each plugin's `.mcp.json` sets to `${CLAUDE_PROJECT_DIR}`.
 - **Phase 3** ✅: remaining personal plugins — `concierge-finance`,
   `concierge-paperwork`, `concierge-fantasy`, `concierge-family`,
-  `concierge-media`. Personal instance (`<instance-dir>`) is now fully
+  `concierge-media`. The author's personal instance is now fully
   plugin-driven except `research.md` (not yet ported — low priority, no
   personal-data coupling to worry about).
   - Same `ROOT`-path bug found and fixed across all 9 backing scripts.
@@ -27,14 +27,11 @@ full rationale — short version:
     skill" (broken once the skill is plugin-hosted/read-only) to
     `config/school-mail-routing.md` at the instance root, matching the
     `config/media*.json` convention.
-  - Known limitation, documented not fixed: `concierge-family`'s
-    `school_db.py` hardcodes two kid slugs (`kid1`/`kid2`) as literal SQL
-    `CHECK` constraint values — a schema migration, not a text edit, out
-    of scope while porting a live instance's existing data. See
-    `plugins/concierge-family/README.md`.
+  - Fixed later: `concierge-family`'s kid slugs and `concierge-fantasy`'s
+    keeper rulesets were hardcoded; both now come from instance config
+    (`config/school.json`, `config/keeper_rules.json`).
   - Deliberately NOT ported (instance-specific automation, not reusable
-    plugin material): `card_deal_scan.ps1`/`.txt` + `card_benefits.json`
-    (one hardcoded credit card's Task Scheduler job); `run_headless_claude.ps1`
+    plugin material): a one-card deal-scan Task Scheduler job; `run_headless_claude.ps1`
     / `_recurring.ps1` (invoked directly by Windows Task Scheduler, which
     never injects `CONCIERGE_HOME` — these need a permanent path outside
     any plugin's versioned cache dir).
@@ -48,3 +45,7 @@ full rationale — short version:
   conventions as this repo. Not detailed further here since that repo is
   private by design; the pattern is identical to everything above.
 - **Phase 6** (next): kids instance, YouTube demo.
+- **Phase 7** (planned): move shared code (path resolution, `.env`
+  loading, the session ledger, local-LLM calls) into a separate
+  `caveman-core` base plugin that every concierge plugin declares as a
+  dependency, replacing `concierge-core`.

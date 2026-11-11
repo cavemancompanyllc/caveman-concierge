@@ -37,12 +37,12 @@ a quick script fix, not a one-off workaround.
   --month YYYY-MM [--category X]`.
 - Finding specific transactions: `python "${CLAUDE_PLUGIN_ROOT}/scripts/finance_index.py" search
   "<merchant or keyword>"`.
-- Optional: premium travel card benefit-usage tracking (credits used vs.
+- Optional: credit-card benefit-usage tracking (credits used vs.
   cap this month/half/year): `python "${CLAUDE_PLUGIN_ROOT}/scripts/finance_index.py" benefits
-  [--month YYYY-MM]`. Reads a `card_benefits.json` file at the instance root's
-  `scripts/` directory (create one there, matching the schema documented in
-  `finance_index.py`'s `benefits` subcommand, only if the user actually
-  carries this specific card — otherwise skip this feature entirely) and
+  [--month YYYY-MM]`. Reads `config/card_benefits.json` at the instance root
+  (create one, matching the schema documented in `finance_index.py`'s
+  `benefits` subcommand, only if the user has a card with credits worth
+  tracking — otherwise skip this feature entirely) and
   matches against already-categorized transactions — heuristic, not an
   exact statement audit (some benefits aren't detectable from transaction
   data at all and should be flagged as manual-check-only). If the user

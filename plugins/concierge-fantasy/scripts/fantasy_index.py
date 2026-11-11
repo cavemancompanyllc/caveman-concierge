@@ -449,7 +449,11 @@ DEFAULT_REPORT_MODEL = "qwen3-coder:30b"
 
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 ODDS_API_BASE = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds"
-NWS_USER_AGENT = "Jarvis-Fantasy (personal use, contact: admin@cavemancompany.co)"
+# NWS asks API clients to identify themselves; set NWS_USER_AGENT in .env to
+# include your own contact if you run this heavily.
+NWS_USER_AGENT = os.environ.get(
+    "NWS_USER_AGENT", "concierge-fantasy (+https://github.com/cavemancompanyllc/caveman-concierge)"
+)
 
 # Home stadium lat/lon per nflverse team_abbr, for NWS API grid lookups. Static
 # (venues change rarely) -- dome/outdoors comes from nflreadpy's schedule
@@ -474,8 +478,8 @@ STADIUM_COORDS: dict[str, tuple[float, float]] = {
 # These are a standard-scoring approximation applied uniformly across both
 # leagues — same level of approximation the heuristic already accepts for
 # skill positions (nflreadpy's fantasy_points_ppr is generic PPR, not each
-# league's exact scoring_settings either). Values mirror League A'
-# actual Sleeper scoring_settings, which are fairly standard defaults.
+# league's exact scoring_settings either). Values mirror a typical
+# Sleeper league's scoring_settings, which are fairly standard defaults.
 K_FG_POINTS = {"fg_made_0_19": 3, "fg_made_20_29": 3, "fg_made_30_39": 3,
                "fg_made_40_49": 4, "fg_made_50_59": 5, "fg_made_60_": 5}
 K_FG_MISS_POINTS = {"fg_missed_0_19": -1, "fg_missed_20_29": -1, "fg_missed_30_39": -1}
@@ -2661,7 +2665,7 @@ def _print_recommendation(conn: sqlite3.Connection, league_id: str, season: int,
     draftboard has no real league behind it, so its picks carry a
     draft-local synthetic roster_id (via slot_to_roster_id, keyed off
     --my-slot's draft_slot) that has nothing to do with the real league's
-    roster numbering — roster_id stays the real League A roster (for
+    roster numbering — roster_id stays the real league roster (for
     real keeper_declarations lookups), track_roster_id is the synthetic
     in-draft id (for matching picks actually made in *this* draft_id).
 
@@ -2822,7 +2826,7 @@ def cmd_draft_live(league_id: str, roster_id: int | None, poll_seconds: int, wat
         (Sleeper leaves it null), only a draft_slot (pick-order column,
         1-teams) — --my-slot N tells this command which draft_slot is yours
         so it can track "my picks in this draft" and detect "your pick next"
-        correctly even though the numbers aren't real League A
+        correctly even though the numbers aren't real league
         roster_ids. The value board itself (roster_positions, keeper set,
         adj_value/tiers) still comes from --league-id's own build-draft-pool
         output — only the live-picks polling target changes.
@@ -3520,58 +3524,67 @@ def cmd_optimize_showdown(filepath: str, season: int, week: int, min_snap: float
     print("  Analysis only — enter lineups on DraftKings yourself, never submitted automatically.")
 
 
-KEEPER_RULESETS = ("league_a", "league_b")
+KEEPER_RULES_PATH = ROOT / "config" / "keeper_rules.json"
+
+
+def load_keeper_rulesets() -> dict[str, dict]:
+    """Per-league keeper rulesets from the instance's config/keeper_rules.json
+    (`applies_to` maps ruleset name -> rules; see keeper_rules.example.json
+    in this plugin's config/ folder). League rules are per-instance data, so
+    no league names or rules are hardcoded here. The first ruleset listed is
+    the default for imports that don't name one."""
+    if not KEEPER_RULES_PATH.exists():
+        raise ValueError(f"missing {KEEPER_RULES_PATH} -- copy keeper_rules.example.json "
+                         "from the concierge-fantasy plugin's config/ folder")
+    rulesets = json.loads(KEEPER_RULES_PATH.read_text(encoding="utf-8")).get("applies_to") or {}
+    if not rulesets:
+        raise ValueError(f"{KEEPER_RULES_PATH}: 'applies_to' must define at least one ruleset")
+    return rulesets
 
 
 def compute_keeper(
-    draft_round: int | None, origin: str, ruleset: str = "league_a"
+    draft_round: int | None, origin: str, ruleset: str | None = None
 ) -> tuple[int | None, bool, str | None]:
-    """Two independent keeper rulesets, one per league — never mix them.
+    """Apply one league's keeper ruleset -- never mix leagues' rulesets.
 
-    league_a: constitution rules 17-21 + the league's own working
-    clarification that any dated pickup is past the trade deadline and
-    therefore keeper-ineligible (not in the written constitution, but the
-    operative rule per the league commissioner). Cost = draft_round - 2,
-    undrafted/waiver = round 13 flat.
+    Each ruleset in config/keeper_rules.json `applies_to` sets:
+      cost_step_per_year   cost = previous draft round - this (required)
+      undrafted_cost_round keeper cost for a never-drafted waiver/FA pickup (required)
+      blocked_rounds       draft rounds that can never be kept (default [1, 2]:
+                           "no player may be kept for a 1st round pick", and
+                           keeping a 2nd-rounder would cost a 1st)
+      dated_pickup_ineligible  a pickup shown with a date, e.g. "(Oct 12)", came
+                           after the trade deadline and can't be kept (default true)
 
-    league_b: this league has no written constitution — League B's own rules, relayed directly by the user from the league's actual
-    rules text (2026-08-24), after an earlier session had applied
-    league_a' rules here as a stand-in since none were known yet.
-    Cost = draft_round - 1 ("one round higher than previous year's draft
-    slot"); undrafted players are valued at round 17, so cost = round 16.
-    Same R1/R2-blocks-keeping rule as league_a ("no player may be
-    kept for a 1st round pick" — since keeping a 2nd-rounder already costs
-    a 1st-round pick, this excludes both R1 and R2). Does NOT encode the
-    same-original-round tiebreak rule ("if a team has two players from the
-    same round to be kept, one costs 2 rounds higher instead of 1, owner's
-    choice which") — that only applies once two specific same-round players
-    are both actually chosen as keepers, which is a keeper-selection-time
-    judgment call, not a per-player eligibility fact; flag it manually at
-    decision time if the roster's keeper shortlist has a same-round pair.
+    Rules that only apply at keeper-selection time (e.g. a same-round pair
+    costing an extra round) are a judgment call made then, not a per-player
+    eligibility fact, so they are not encoded here; flag them manually.
 
     Returns (keeper_cost_round, eligible, ineligible_reason)."""
-    if ruleset not in KEEPER_RULESETS:
-        raise ValueError(f"unknown keeper ruleset {ruleset!r}, expected one of {KEEPER_RULESETS}")
-    if re.search(r"\((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+\)", origin):
+    rulesets = load_keeper_rulesets()
+    name = ruleset or next(iter(rulesets))
+    if name not in rulesets:
+        raise ValueError(f"unknown keeper ruleset {name!r}, expected one of {sorted(rulesets)}")
+    rules = rulesets[name]
+    step = int(rules["cost_step_per_year"])
+    undrafted = int(rules["undrafted_cost_round"])
+    blocked = tuple(rules.get("blocked_rounds", (1, 2)))
+    if rules.get("dated_pickup_ineligible", True) and re.search(
+        r"\((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d+\)", origin
+    ):
         return None, False, "after trade deadline (dated pickup)"
-    if draft_round in (1, 2):
-        return None, False, f"drafted round {draft_round} (R1/R2 rule)"
+    if draft_round in blocked:
+        return None, False, f"drafted round {draft_round} (blocked round rule)"
     never_drafted = ("Waiver" in origin or "Free Agent" in origin) and "Drafted by" not in origin
-    if ruleset == "league_b":
-        if never_drafted:
-            return 16, True, None
-        if draft_round is None:
-            return None, False, "no draft round on record"
-        return draft_round - 1, True, None
     if never_drafted:
-        return 13, True, None
+        return undrafted, True, None
     if draft_round is None:
         return None, False, "no draft round on record"
-    return draft_round - 2, True, None
+    return draft_round - step, True, None
 
 
 def _parse_keeper_source(text: str) -> list[dict]:
-    """Parse the League A league's own yearly keeper-eligibility dump
+    """Parse a league's own yearly keeper-eligibility dump
     format: '<n>. <FirstName>' section headers, then one line per rostered
     player like 'WR: G. Pickens (DAL) — Round 5 | Drafted' or, for team
     defenses, 'DEF: LAR — Round 13 | Waiver Wire Add'. This is a manually
@@ -3627,13 +3640,11 @@ def _resolve_season_league(league_id: str, season: int, max_hops: int = 6) -> di
 
 def cmd_sync_draft_history(league_id: str, season: int, roster_id: int | None, ruleset: str) -> None:
     """Build draft_history for one roster directly from Sleeper's own draft
-    picks + transaction log — no manual dump needed, unlike League A
-    (which predates Sleeper and has no clean draft/transaction API history
-    of its own). `ruleset` selects which of compute_keeper's two rulesets
-    to apply (see its docstring) — pass "league_b" for League B's own real rules (relayed by the user 2026-08-24; an earlier session
-    used "league_a" here as a stand-in since no ruleset was known yet
-    for this league — do not use that default going forward for this
-    league). A player's draft round travels with them through trades within
+    picks + transaction log — no manual dump needed, unlike a league that
+    predates Sleeper and has no clean draft/transaction API history of its
+    own. `ruleset` names the league's entry in config/keeper_rules.json
+    `applies_to` (see compute_keeper); always pass the league's own ruleset,
+    never another league's as a stand-in. A player's draft round travels with them through trades within
     a season — we only look at *whether* and *at what round* a player was
     drafted, not who currently owns them within that season, so a
     since-traded-for player still gets their original draft-round cost."""
@@ -3979,7 +3990,7 @@ def main() -> None:
     syncdraft_p.add_argument("--league-id", required=True)
     syncdraft_p.add_argument("--season", type=int, required=True, help="Season to pull draft/transaction history for")
     syncdraft_p.add_argument("--roster-id", type=int, help="Roster ID (default: roster owned by SLEEPER_USER_ID)")
-    syncdraft_p.add_argument("--ruleset", required=True, choices=KEEPER_RULESETS, help="Which league's keeper rules to apply (see compute_keeper docstring)")
+    syncdraft_p.add_argument("--ruleset", required=True, help="Which league's keeper ruleset to apply: a name from config/keeper_rules.json applies_to")
 
     kreport_p = sub.add_parser("keepers-report", help="Every team's eligible keepers + any declared so far")
     kreport_p.add_argument("--league-id", required=True)

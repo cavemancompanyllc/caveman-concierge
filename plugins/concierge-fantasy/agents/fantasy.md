@@ -223,8 +223,8 @@ subcommands that actually exist in `"${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index
   declared keepers for that season in `keeper_declarations` — that means
   declarations aren't synced yet, not that a team only kept fewer; run
   `keepers-declare` for every team first. Two leagues, two independently-
-  computed scoring factors — Its League B's yardage/TD bonus
-  categories never leak into League A' numbers or
+  computed scoring factors — one league's yardage/TD bonus
+  categories never leak into the other league's numbers or
   vice versa. `--skip-keeper-check` bypasses that hard-fail entirely (0
   keepers excluded, any real declarations that already exist are still
   honored) — **pre-declaration mock-draft rehearsal ONLY** (keeper
@@ -257,7 +257,7 @@ subcommands that actually exist in `"${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index
     `roster_id` when it's null. `--my-slot N` is that draft_slot number
     (the seat the user is sitting in for that mock, e.g. seat 8), resolved
     against the *polled* draft's own `slot_to_roster_id` map — decoupled
-    from `--roster-id`, which stays the real League A/league roster
+    from `--roster-id`, which stays the real league roster
     used for `keeper_declarations`/need lookups. The `draft_pool` board
     itself always comes from `--league-id`'s own `build-draft-pool`
     output either way — only the live-picks polling target changes.
