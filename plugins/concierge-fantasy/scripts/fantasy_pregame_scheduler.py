@@ -35,12 +35,38 @@ from pathlib import Path
 import httpx
 
 from caveman_core import env as cc_env
+from caveman_core import paths as cc_paths
 from caveman_core.paths import workspace_root
 
 ROOT = workspace_root()
 DB_PATH = ROOT / "data" / "fantasy.db"
 PROMPTS_DIR = ROOT / "data" / "fantasy_pregame_prompts"
-RUNNER_PS1 = ROOT / "scripts" / "run_headless_claude.ps1"
+
+# Tools an unattended pregame run may use (cavecore headless reads this when a
+# prompt has no sidecar). Written once; edit the workspace's copy to change it.
+DEFAULT_ALLOWED_TOOLS = """\
+# Pregame check runs (cavecore headless). One tool rule per line.
+Bash(python -m caveman_core run concierge-fantasy fantasy_index.py *)
+Bash(python -m caveman_core run concierge-fantasy espn_client.py *)
+Bash(python -m caveman_core run concierge-fantasy espn_tx.py *)
+Bash(scripts\\fantasy.cmd *)
+Bash(scripts\\espn.cmd *)
+Bash(sqlite3 data/fantasy.db *)
+WebSearch
+Skill(defuddle)
+mcp__plugin_concierge-memory-obsidian_obsidian__*
+mcp__playwright__*
+PushNotification
+"""
+
+
+def task_prefix() -> str:
+    """Scheduled-task name prefix, e.g. "Jarvis-Fantasy-Pregame-" for a workspace named Jarvis."""
+    try:
+        name = cc_paths.resolve().name
+    except cc_paths.WorkspaceNotFound:
+        name = ROOT.name
+    return "".join(ch if ch.isalnum() else "-" for ch in name).strip("-") + "-Fantasy-Pregame-"
 
 READ_BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
 SLEEPER_BASE = "https://api.sleeper.app/v1"
@@ -324,10 +350,19 @@ def schedule_windows_task(name: str, run_at: datetime, prompt_path: Path, dry_ru
     local_dt = run_at.astimezone()  # local tz for schtasks
     date_str = local_dt.strftime("%m/%d/%Y")
     time_str = local_dt.strftime("%H:%M")
+    # cavecore headless runs the prompt with the folder's default.allowedtools, the
+    # workspace's headless.before prep step, logs to data/fantasy_pregame_logs, and
+    # deletes this one-shot task afterwards. The prompt path is workspace-relative to
+    # stay under schtasks' 261-character limit.
+    rel = prompt_path.relative_to(ROOT)
+    action = (f'"{sys.executable}" -m caveman_core --workspace "{ROOT}" headless '
+              f'--prompt-file "{rel}" --delete-task "{name}"')
+    if len(action) > 261:
+        raise SystemExit(f"task command is {len(action)} chars; schtasks allows 261: {action}")
     cmd = [
         "schtasks", "/create", "/tn", name, "/sc", "once",
         "/sd", date_str, "/st", time_str, "/f",
-        "/tr", f'powershell -NoProfile -ExecutionPolicy Bypass -File "{RUNNER_PS1}" -PromptFile "{prompt_path}"',
+        "/tr", action,
     ]
     print(f"{'[DRY RUN] Would schedule' if dry_run else 'Scheduling'}: {name} at {local_dt.isoformat()}")
     if not dry_run:
@@ -345,11 +380,15 @@ def cmd_weekly_scan(buffer_min: int, dry_run: bool) -> None:
         if trigger_time <= now:
             print(f"SKIP (already past): {trigger_time.isoformat()} -- {len(players)} player(s)")
             continue
+        default_tools = PROMPTS_DIR / "default.allowedtools"
+        if not default_tools.exists():
+            default_tools.parent.mkdir(parents=True, exist_ok=True)
+            default_tools.write_text(DEFAULT_ALLOWED_TOOLS, encoding="utf-8")
         prompt_text = make_prompt(trigger_time, players)
         slug = trigger_time.strftime("%Y%m%dT%H%M")
         prompt_path = PROMPTS_DIR / f"{slug}.txt"
         prompt_path.write_text(prompt_text, encoding="utf-8")
-        task_name = f"Jarvis-Fantasy-Pregame-{slug}"
+        task_name = f"{task_prefix()}{slug}"
         schedule_windows_task(task_name, trigger_time, prompt_path, dry_run)
 
 
