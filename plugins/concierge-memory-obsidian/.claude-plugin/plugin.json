@@ -18,27 +18,27 @@
     "vault_path": {
       "type": "directory",
       "title": "Vault path",
-      "description": "Absolute path to your Obsidian vault (informational — the actual connection goes through the REST API plugin's host/port below; this is used in the agent's own text so it knows what it's talking about).",
-      "required": true
+      "description": "Optional, informational only. Prefer the workspace setting: workspace.yaml -> plugins.concierge-memory-obsidian.vault_path.",
+      "required": false
     },
     "api_key": {
       "type": "string",
       "title": "Obsidian Local REST API key",
-      "description": "From Obsidian > Settings > Community Plugins > Local REST API > API Key.",
-      "required": true,
+      "description": "Optional. Prefer OBSIDIAN_API_KEY in the workspace .env (each workspace usually has its own vault).",
+      "required": false,
       "sensitive": true
     },
     "host": {
       "type": "string",
       "title": "Obsidian REST API host",
-      "description": "Usually 127.0.0.1 (same machine).",
-      "default": "127.0.0.1"
+      "description": "Optional. Prefer OBSIDIAN_HOST in the workspace .env. Default 127.0.0.1.",
+      "required": false
     },
     "port": {
       "type": "number",
       "title": "Obsidian REST API port",
-      "description": "Port the Local REST API plugin listens on.",
-      "default": 27124
+      "description": "Optional. Prefer OBSIDIAN_PORT in the workspace .env (e.g. a second vault on 27125). Default 27124.",
+      "required": false
     }
   },
   "dependencies": [

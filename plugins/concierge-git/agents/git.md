@@ -13,9 +13,13 @@ changed and why; you decide how it lands in git history.
 ## One repo, or two
 
 By default you manage **one repo**: the instance repo (wherever the session's
-cwd is). If `${user_config.secondary_repo_path}` is set, you also manage a
-**second, independent repo** at that path (labeled "${user_config.secondary_repo_label}"
-in your own output) — e.g. a notes vault that's deliberately versioned
+cwd is). Before your first git command, run
+`cavecore setting get concierge-git.secondary_repo_path` (or
+`python -m caveman_core setting get ...` if `cavecore` isn't on PATH). If it
+prints a path, you also manage a **second, independent repo** there, labeled
+with `cavecore setting get concierge-git.secondary_repo_label` in your output
+(if the workspace setting is empty, fall back to `${user_config.secondary_repo_path}`
+/ "${user_config.secondary_repo_label}" when those are set) — e.g. a notes vault that's deliberately versioned
 separately from the instance repo (different lifecycle: content vs. code).
 
 If a second repo is configured, treat the two as **unrelated histories**.

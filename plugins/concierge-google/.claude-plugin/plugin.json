@@ -21,14 +21,14 @@
     "client_id": {
       "type": "string",
       "title": "Google OAuth Client ID",
-      "description": "From Google Cloud Console > APIs & Services > Credentials > OAuth client ID > Desktop app.",
-      "required": true
+      "description": "Optional. Prefer GOOGLE_CLIENT_ID in the workspace .env.",
+      "required": false
     },
     "client_secret": {
       "type": "string",
       "title": "Google OAuth Client Secret",
-      "description": "From the same OAuth Desktop app client as the Client ID above.",
-      "required": true,
+      "description": "Optional. Prefer GOOGLE_CLIENT_SECRET in the workspace .env.",
+      "required": false,
       "sensitive": true
     }
   },

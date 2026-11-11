@@ -9,10 +9,11 @@ plugin's own `.mcp.json` sets this to `${CLAUDE_PROJECT_DIR}` before
 launching this process), falling back to cwd for manual/local-dev runs
 where that isn't set.
 
-Most config (vault path, API key, host/port) actually arrives as real
-process env vars already, via the plugin's `userConfig` -> `.mcp.json` env
-mapping — this .env load is a convenience fallback for values set that way
-instead, and `setdefault` means it never overrides what's already set.
+Config (API key, host, port) normally comes from the workspace `.env`
+(OBSIDIAN_API_KEY / OBSIDIAN_HOST / OBSIDIAN_PORT), because each workspace has
+its own vault. The plugin's optional userConfig still maps into the same env
+vars via `.mcp.json`; a blank field arrives empty and the .env value fills it,
+while a non-empty userConfig value wins.
 
 1. mcp-obsidian 0.2.2 has no upper bound on its `mcp` dependency, so a bare
    `uvx mcp-obsidian` used to pull whatever the latest mcp SDK is. mcp 2.0.0
