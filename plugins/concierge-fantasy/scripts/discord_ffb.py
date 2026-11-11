@@ -26,26 +26,16 @@ from pathlib import Path
 
 import httpx
 
-ROOT = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
-ENV_PATH = ROOT / ".env"
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = workspace_root()
 STATE_PATH = ROOT / "data" / "discord_ffb_state.json"
 
 DISCORD_API = "https://discord.com/api/v10"
 
 
-def _load_env() -> None:
-    if not ENV_PATH.exists():
-        return
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
-
-
-_load_env()
+cc_env.load(ROOT)
 
 BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 CHANNEL_ID = os.environ.get("DISCORD_FFB_CHANNEL_ID", "")

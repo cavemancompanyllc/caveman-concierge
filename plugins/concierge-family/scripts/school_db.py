@@ -29,7 +29,9 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-HOME = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
+from caveman_core.paths import workspace_root
+
+HOME = workspace_root()
 DB_PATH = HOME / "data" / "school.db"
 CONFIG_PATH = HOME / "config" / "school.json"
 

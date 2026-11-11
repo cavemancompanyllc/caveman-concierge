@@ -25,32 +25,21 @@ import zipfile
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
 
-import httpx
 
-ROOT = os.environ.get("CONCIERGE_HOME") or os.getcwd()
-ENV_PATH = os.path.join(ROOT, ".env")
+from caveman_core import env as cc_env
+from caveman_core import llm
+from caveman_core.paths import workspace_root
 
-
-def _load_env() -> None:
-    if not os.path.exists(ENV_PATH):
-        return
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+ROOT = str(workspace_root())
 
 
-_load_env()
+cc_env.load(ROOT)
 
 SOURCE_DIR = os.environ.get("PAPERWORK_SOURCE_DIR", "")
 INDEX_DIR = os.path.join(ROOT, "data", "paperwork")
 TEXT_DIR = os.path.join(INDEX_DIR, "text")
 INDEX_PATH = os.path.join(INDEX_DIR, "index.json")
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gpt-oss:20b"
 REQUEST_TIMEOUT = 120.0
 
@@ -141,28 +130,15 @@ def extract_text(path: str, ext: str) -> str | None:
 def classify(text: str, model: str) -> dict:
     prompt = text[:MAX_CHARS_FOR_CLASSIFY]
     try:
-        resp = httpx.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": CLASSIFY_SYSTEM},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "format": "json",
-                # gpt-oss ignores think=False and needs an effort level instead.
-                "think": "low" if model.startswith("gpt-oss") else False,
-            },
-            timeout=REQUEST_TIMEOUT,
+        content = llm.chat(
+            [{"role": "system", "content": CLASSIFY_SYSTEM}, {"role": "user", "content": prompt}],
+            model, json_format=True, think="auto", timeout=REQUEST_TIMEOUT,
         )
-        resp.raise_for_status()
-        content = resp.json().get("message", {}).get("content", "{}")
         data = json.loads(content)
         if data.get("suggested_folder") not in TAXONOMY:
             data["suggested_folder"] = "Uncategorized"
         return data
-    except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
+    except (llm.LLMError, json.JSONDecodeError, KeyError) as e:
         return {"doc_type": "unknown", "summary": f"[classification failed: {e}]",
                 "suggested_folder": "Uncategorized"}
 

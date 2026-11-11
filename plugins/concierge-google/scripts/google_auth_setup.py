@@ -21,7 +21,7 @@ mailbox/calendar/Drive access. It's gitignored; never commit it.
 
 This script ships inside the plugin, not the instance's own repo, so .env
 and data/google_token.json can't be found relative to `__file__` - the
-instance root resolves via the `CONCIERGE_HOME` env var if set, falling
+instance root resolves via the `CAVEMAN_HOME` env var if set, falling
 back to cwd (hence "run with cwd set to the instance root" above).
 """
 from __future__ import annotations
@@ -30,8 +30,10 @@ import os
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-ROOT = os.environ.get("CONCIERGE_HOME") or os.getcwd()
-ENV_PATH = os.path.join(ROOT, ".env")
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = str(workspace_root())
 TOKEN_PATH = os.path.join(ROOT, "data", "google_token.json")
 
 SCOPES = [
@@ -42,20 +44,8 @@ SCOPES = [
 ]
 
 
-def load_env() -> None:
-    if not os.path.exists(ENV_PATH):
-        return
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
-
-
 def main() -> None:
-    load_env()
+    cc_env.load(ROOT)
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
     if not client_id or not client_secret:

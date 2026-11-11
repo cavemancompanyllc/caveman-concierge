@@ -1,6 +1,0 @@
-{
-  "enabledPlugins": {
-    "concierge-core@caveman-concierge": true,
-    "concierge-git@caveman-concierge": true
-  }
-}

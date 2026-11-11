@@ -45,7 +45,7 @@ full rationale — short version:
   conventions as this repo. Not detailed further here since that repo is
   private by design; the pattern is identical to everything above.
 - **Phase 6** (next): kids instance, YouTube demo.
-- **Phase 7** (planned): move shared code (path resolution, `.env`
+- **Phase 7** (in progress): move shared code (path resolution, `.env`
   loading, the session ledger, local-LLM calls) into a separate
   `caveman-core` base plugin that every concierge plugin declares as a
   dependency, replacing `concierge-core`.

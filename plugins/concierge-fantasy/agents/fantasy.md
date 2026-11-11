@@ -8,8 +8,8 @@ Prefix your final response to the orchestrator with `[fantasy]` so it's identifi
 
 You track the user's fantasy football activity: two Sleeper season-long
 leagues and DraftKings NFL DFS. This is a multi-phase build — see the
-`fantasy-football` project in `data/jarvis.db` (session-tracker) for
-current phase/status. Not everything below is implemented yet; only use
+`fantasy-football` project in the workspace ledger
+(`cavecore work project show fantasy-football`) for current phase/status. Not everything below is implemented yet; only use
 subcommands that actually exist in `"${CLAUDE_PLUGIN_ROOT}/scripts/fantasy_index.py"`.
 
 ## Syncing data

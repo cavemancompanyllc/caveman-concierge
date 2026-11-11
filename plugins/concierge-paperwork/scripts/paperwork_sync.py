@@ -24,8 +24,10 @@ import httpx
 
 from paperwork_index import INDEX_PATH, TAXONOMY
 
-ROOT = os.environ.get("CONCIERGE_HOME") or os.getcwd()
-ENV_PATH = os.path.join(ROOT, ".env")
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = str(workspace_root())
 
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 TOKEN_TIMEOUT = 30.0
@@ -43,18 +45,6 @@ METADATA_COLUMNS = [
         },
     },
 ]
-
-
-def load_env() -> None:
-    if not os.path.exists(ENV_PATH):
-        return
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
 
 
 def require_env(name: str) -> str:
@@ -221,7 +211,7 @@ def push() -> None:
 
 
 def main() -> None:
-    load_env()
+    cc_env.load(ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("resolve", help="Verify auth, list document library drives (read-only)")

@@ -4,7 +4,7 @@ it starts.
 
 This script ships inside the `concierge-memory-obsidian` plugin, so it does
 NOT live in the instance's own repo — .env lives there, not next to this
-file. The instance root resolves via the `CONCIERGE_HOME` env var (the
+file. The instance root resolves via the `CAVEMAN_HOME` env var (the
 plugin's own `.mcp.json` sets this to `${CLAUDE_PROJECT_DIR}` before
 launching this process), falling back to cwd for manual/local-dev runs
 where that isn't set.
@@ -33,19 +33,12 @@ instead, and `setdefault` means it never overrides what's already set.
 import asyncio
 import os
 
-ROOT = os.environ.get("CONCIERGE_HOME") or os.getcwd()
-ENV_PATH = os.path.join(ROOT, ".env")
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
 
-if os.path.exists(ENV_PATH):
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip()
-            os.environ.setdefault(key, value)
+ROOT = str(workspace_root())
+
+cc_env.load(ROOT)
 
 from mcp_obsidian import obsidian, server  # noqa: E402 (needs env vars loaded first)
 

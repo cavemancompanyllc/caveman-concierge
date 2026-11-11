@@ -12,10 +12,15 @@ football tools, a document renderer, a diagram generator — each one an
 independent plugin with its own config. Leave the rest out.
 
 ```bash
+claude plugin marketplace add cavemancompanyllc/caveman-core
 claude plugin marketplace add cavemancompanyllc/caveman-concierge
-claude plugin install concierge-core@caveman-concierge --scope project
 claude plugin install concierge-git@caveman-concierge --scope project
 ```
+
+Every plugin here is built on [Caveman Core](https://github.com/cavemancompanyllc/caveman-core), which installs
+automatically as a dependency and provides the workspace model, the session
+ledger, one handoff command and shared code. Install its small Python package
+once per machine first ([how](https://github.com/cavemancompanyllc/caveman-core#install)).
 
 Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 Full plugin list + what each one needs: [docs/agent-catalog.md](docs/agent-catalog.md).
@@ -49,16 +54,16 @@ shareable independently.
 caveman-concierge/              ← this repo — the marketplace itself
 ├── .claude-plugin/marketplace.json
 ├── plugins/
-│   ├── concierge-core/         ← session tracking, foundation
 │   ├── concierge-git/          ← commits + secret scanning
 │   ├── concierge-memory-obsidian/
 │   ├── concierge-google/
 │   ├── concierge-finance/
 │   └── ...                     ← one directory per capability
-├── instance-template/          ← copy this to start a new instance
 └── docs/
 
-your-instance/                  ← a separate, tiny repo (or no repo at all)
+your-instance/                  ← a separate, tiny repo (or no repo at all),
+│                                 created with `cavecore workspace init`
+├── workspace.yaml              ← name and kind of this instance
 ├── CLAUDE.md                   ← who you are, what this instance is for
 ├── .env                        ← secrets (gitignored)
 ├── .claude/settings.json       ← which plugins are enabled
@@ -82,7 +87,7 @@ the specific bug class this caught, repeatedly).
 ## What's here
 
 See [docs/agent-catalog.md](docs/agent-catalog.md) for the full table —
-foundation plugins (session tracking, git), general productivity (notes,
+foundation (git; session tracking comes from Caveman Core), general productivity (notes,
 email, local-LLM offloading, diagrams, documents), and personal-domain
 plugins (finance, paperwork, fantasy football, family/school tracking,
 media server management).

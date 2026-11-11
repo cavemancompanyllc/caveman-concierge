@@ -25,9 +25,11 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import httpx
 
-ROOT = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
+from caveman_core import llm
+from caveman_core.paths import workspace_root
+
+ROOT = workspace_root()
 DATA_DIR = ROOT / "data" / "finance"
 INBOX_DIR = DATA_DIR / "inbox"
 ARCHIVE_DIR = DATA_DIR / "archive"
@@ -35,7 +37,6 @@ DB_PATH = ROOT / "data" / "finance.db"
 # Card benefit caps are per-person data, so they live in the instance config.
 CARD_BENEFITS_PATH = ROOT / "config" / "card_benefits.json"
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_MODEL = "gpt-oss:20b"
 REQUEST_TIMEOUT = 60.0
 
@@ -149,28 +150,14 @@ def categorize(merchant: str, model: str, cache: dict[str, str]) -> str:
         cache[merchant] = "Transfer"
         return "Transfer"
     try:
-        resp = httpx.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": CLASSIFY_SYSTEM},
-                    {"role": "user", "content": merchant},
-                ],
-                "stream": False,
-                "format": "json",
-                # gpt-oss ignores think=False and needs an effort level instead;
-                # "low" keeps one-word categorization from reasoning at length.
-                "think": "low" if model.startswith("gpt-oss") else False,
-            },
-            timeout=REQUEST_TIMEOUT,
+        content = llm.chat(
+            [{"role": "system", "content": CLASSIFY_SYSTEM}, {"role": "user", "content": merchant}],
+            model, json_format=True, think="auto", timeout=REQUEST_TIMEOUT,
         )
-        resp.raise_for_status()
-        content = resp.json().get("message", {}).get("content", "{}")
         category = json.loads(content).get("category")
         if category not in CATEGORIES:
             category = "Uncategorized"
-    except (httpx.HTTPError, json.JSONDecodeError, KeyError):
+    except (llm.LLMError, json.JSONDecodeError, KeyError):
         category = "Uncategorized"
     cache[merchant] = category
     return category

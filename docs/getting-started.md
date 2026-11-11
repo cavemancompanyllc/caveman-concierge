@@ -3,9 +3,11 @@
 ## 1. Prerequisites
 
 - [Claude Code](https://claude.com/claude-code) installed and authenticated.
-- Python 3.11+ on PATH (most plugins here are Python scripts — stdlib
-  only for the foundation plugins, a few third-party packages for others;
-  each plugin's `requirements.txt`, if it has one, lists what it needs).
+- Python 3.11+ on PATH (most plugins here are Python scripts; each
+  plugin's `requirements.txt`, if it has one, lists what it needs).
+- The [Caveman Core](https://github.com/cavemancompanyllc/caveman-core) Python package installed into that same Python
+  ([install steps](https://github.com/cavemancompanyllc/caveman-core#install)). Every plugin here depends on the
+  `caveman-core` plugin, which Claude Code installs automatically.
 - Anything a specific plugin needs beyond that — see
   [agent-catalog.md](agent-catalog.md) before installing it.
 
@@ -19,16 +21,21 @@ mkdir my-concierge && cd my-concierge
 git init   # optional but recommended — see "One repo or many?" below
 ```
 
-Copy [`instance-template/`](../instance-template/) from this repo into
-your new directory (or just its `CLAUDE.md`, `.env.example`, and
-`.claude/settings.json` if you'd rather build up from nothing) and follow
-its own README for the fill-in-the-blanks steps.
+Scaffold the standard layout (`workspace.yaml`, `CLAUDE.md`, `.gitignore`,
+`.env.example`, `config/`, `data/`, `.claude/settings.json`):
+
+```bash
+cavecore workspace init --name "My Concierge" --kind personal          # dry run
+cavecore workspace init --name "My Concierge" --kind personal --apply
+```
+
+(`python -m caveman_core` works the same if `cavecore` isn't on PATH.)
 
 ## 3. Add the marketplace and install plugins
 
 ```bash
+claude plugin marketplace add cavemancompanyllc/caveman-core
 claude plugin marketplace add cavemancompanyllc/caveman-concierge
-claude plugin install concierge-core@caveman-concierge --scope project
 claude plugin install concierge-git@caveman-concierge --scope project
 ```
 
@@ -53,7 +60,9 @@ time to see what's currently enabled in this instance.
 
 ## 4. Start using it
 
-Open a Claude Code session in your instance directory. Installed agents
+Open a Claude Code session in your instance directory. At start-up,
+Caveman Core loads the workspace context and each installed plugin's rules.
+Run `/caveman-core:doctor` once to check the setup. Installed agents
 are available by name (mention them, or let the orchestrator delegate to
 them automatically when a request matches their description). Installed
 skills activate automatically when relevant, or via `/plugin-name:skill-name`.
@@ -72,7 +81,7 @@ its next `claude plugin update`. See the main
 
 ```bash
 claude plugin marketplace update caveman-concierge
-claude plugin update concierge-core@caveman-concierge   # or any specific plugin
+claude plugin update concierge-git@caveman-concierge   # or any specific plugin
 ```
 
 ## Troubleshooting

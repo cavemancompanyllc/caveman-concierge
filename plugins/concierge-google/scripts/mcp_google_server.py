@@ -11,7 +11,7 @@ telling the caller to re-run setup.
 This script ships inside the `concierge-google` plugin, not the instance's
 own repo, so `data/google_token.json` and `.env` can't be found relative to
 `__file__` — they live in the instance. The instance root resolves via the
-`CONCIERGE_HOME` env var (this plugin's `.mcp.json` sets it to
+`CAVEMAN_HOME` env var (this plugin's `.mcp.json` sets it to
 `${CLAUDE_PROJECT_DIR}` before launching this process), falling back to cwd
 for manual/local-dev runs where that isn't set.
 
@@ -35,8 +35,10 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 from mcp.server.fastmcp import FastMCP
 
-ROOT = os.environ.get("CONCIERGE_HOME") or os.getcwd()
-ENV_PATH = os.path.join(ROOT, ".env")
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = str(workspace_root())
 TOKEN_PATH = os.path.join(ROOT, "data", "google_token.json")
 SCRATCH_DIR = os.path.join(ROOT, "scratch")
 
@@ -47,14 +49,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/tasks",
 ]
 
-if os.path.exists(ENV_PATH):
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
+cc_env.load(ROOT)
 
 mcp = FastMCP("google")
 

@@ -134,23 +134,14 @@ import httpx
 import nflreadpy as nfl
 import pulp
 
-ROOT = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
-ENV_PATH = ROOT / ".env"
+from caveman_core import env as cc_env
+from caveman_core import llm
+from caveman_core.paths import workspace_root
+
+ROOT = workspace_root()
 
 
-def _load_env() -> None:
-    if not ENV_PATH.exists():
-        return
-    with open(ENV_PATH, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            os.environ.setdefault(key.strip(), value.strip())
-
-
-_load_env()
+cc_env.load(ROOT)
 
 SLEEPER_LEAGUE_IDS = [x.strip() for x in os.environ.get("SLEEPER_LEAGUE_IDS", "").split(",") if x.strip()]
 
@@ -444,7 +435,6 @@ CREATE TABLE IF NOT EXISTS weekly_rankings (
 );
 """
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
 DEFAULT_REPORT_MODEL = "qwen3-coder:30b"
 
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
@@ -1586,17 +1576,8 @@ def cmd_optimize_sleeper(league_id: str, week: int, season: int, roster_id: int 
 
 
 def _ollama_chat(system: str, user: str, model: str) -> str:
-    resp = httpx.post(
-        OLLAMA_URL,
-        json={
-            "model": model,
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "stream": False,
-        },
-        timeout=120.0,
-    )
-    resp.raise_for_status()
-    return resp.json().get("message", {}).get("content", "")
+    return llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    model, timeout=120.0)
 
 
 REPORT_SYSTEM = (

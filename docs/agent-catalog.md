@@ -15,7 +15,7 @@ options, or check the plugin's own description below.
 
 | Plugin | What it does | Needs |
 |---|---|---|
-| `concierge-core` | Session-continuity tracker (Project → Effort → Session in local SQLite) + a local Claude Code token-usage report. Most other plugins here assume this is installed. | Nothing — stdlib Python only. |
+| [`caveman-core`](https://github.com/cavemancompanyllc/caveman-core) | Workspace model, session ledger (Project → Effort → Session/Task), `/caveman-core:handoff`, session-start plugin rules, doctor, backup. Installed automatically: every plugin here depends on it. | Its Python package, installed once per machine. |
 | `concierge-git` | Git commit/branch/merge subagent with a mandatory pre-commit secret scan. Can optionally manage a second, independently-versioned repo (e.g. a notes vault) via `userConfig`. | Nothing — Bash + git. |
 
 ## Productivity
@@ -39,7 +39,7 @@ options, or check the plugin's own description below.
 
 ## Picking a starting set
 
-- **Just want the session-continuity + git workflow?** `concierge-core` + `concierge-git`.
+- **Just want the session-continuity + git workflow?** `concierge-git` (Caveman Core comes with it).
 - **Personal daily-driver like the reference instance?** Add `concierge-memory-obsidian`, `concierge-local-llm`, `concierge-google`.
 - **Specific domain plugins** (finance, fantasy, paperwork, family, media) are independent of each other — install only the ones that match things you actually track.
 

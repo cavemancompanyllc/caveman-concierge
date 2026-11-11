@@ -78,8 +78,10 @@ from urllib.parse import quote
 
 import httpx
 
-ROOT = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
-ENV_PATH = ROOT / ".env"
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = workspace_root()
 CONFIG_PATH = ROOT / "config" / "media.json"
 CONFIG_EXAMPLE = ROOT / "config" / "media.example.json"
 RULES_PATH = ROOT / "config" / "media_rules.json"
@@ -124,17 +126,6 @@ class NotConfigured(MediaError):
 # .env loading - same hand-rolled reader the other scripts in this repo use,
 # so there's no python-dotenv dependency to install.
 # ─────────────────────────────────────────────────────────────────────────────
-def _load_env() -> None:
-    if not ENV_PATH.exists():
-        return
-    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2045,7 +2036,7 @@ def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    _load_env()
+    cc_env.load(ROOT)
     args = build_parser().parse_args()
     try:
         return args.func(args) or 0

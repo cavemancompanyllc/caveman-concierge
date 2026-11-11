@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "concierge-paperwork",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Finds and suggests filing for personal documents (leases, tax returns, insurance, IDs) synced from a cloud drive. Search-only — extracts/classifies via a local Ollama model, never Claude's API, since the content is sensitive.",
   "author": {
     "name": "Mike",
@@ -9,5 +9,12 @@
   },
   "homepage": "https://github.com/cavemancompanyllc/caveman-concierge",
   "license": "MIT",
-  "keywords": ["documents", "filing", "search"]
+  "keywords": [
+    "documents",
+    "filing",
+    "search"
+  ],
+  "dependencies": [
+    "caveman-core@caveman-core"
+  ]
 }

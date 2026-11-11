@@ -11,6 +11,9 @@ plugins/concierge-<name>/
 ├── commands/                # optional — flat .md skill files
 ├── scripts/                 # optional — backing Python/shell scripts
 ├── .mcp.json                # optional — if this plugin runs an MCP server
+├── requires.json             # CLIs and env vars it needs (checked by `cavecore doctor`)
+├── rules/session.md          # optional — always-on rules, loaded at session start
+├── schema/*.sql              # optional — ledger tables (CREATE TABLE IF NOT EXISTS)
 ├── requirements.txt          # optional — pip deps, if any
 └── README.md                 # optional but recommended if there's a
                                # known limitation or non-obvious setup step
@@ -30,8 +33,18 @@ never inside `.claude-plugin/`.
   "author": { "name": "...", "email": "..." },
   "homepage": "https://github.com/cavemancompanyllc/caveman-concierge",
   "license": "MIT",
-  "keywords": ["..."]
+  "keywords": ["..."],
+  "dependencies": ["caveman-core@caveman-core"]
 }
+```
+
+Every plugin here depends on `caveman-core` (a separate marketplace; this
+repo's `marketplace.json` allows it via `allowCrossMarketplaceDependenciesOn`).
+Put required CLIs and env vars in `requires.json` beside the manifest, not in
+`plugin.json`, which `claude plugin validate --strict` keeps to known fields:
+
+```json
+{ "cli": ["python", "ollama"], "env": ["MY_API_KEY"] }
 ```
 
 If your plugin needs per-instance configuration (a path, an API key, a
@@ -76,30 +89,35 @@ ROOT = Path(__file__).resolve().parent.parent   # WRONG once this is a plugin
 
 That resolves into the plugin's own cache directory, not the user's
 instance — silently breaking `.env` loading, DB paths, token caches,
-anything instance-relative. The fix used throughout this repo:
+anything instance-relative. The fix used throughout this repo is Caveman
+Core's resolver and `.env` loader:
 
 ```python
-ROOT = Path(os.environ.get("CONCIERGE_HOME") or Path.cwd())
+from caveman_core import env as cc_env
+from caveman_core.paths import workspace_root
+
+ROOT = workspace_root()   # CAVEMAN_HOME, legacy CONCIERGE_HOME, workspace.yaml walk-up, else cwd
+cc_env.load(ROOT)         # <instance>/.env; never overrides variables already set
 ```
+
+Local-LLM calls go through `caveman_core.llm.chat(...)` rather than a
+hand-rolled HTTP call.
 
 - For a script invoked via the **Bash tool** (an agent runs
   `python "${CLAUDE_PLUGIN_ROOT}/scripts/foo.py"`): `cwd` is already the
-  instance root — Claude Code's Bash tool runs there. `CONCIERGE_HOME`
-  will be unset; the `cwd` fallback is what actually resolves it.
+  instance root — Claude Code's Bash tool runs there, and the
+  `workspace.yaml` walk-up (or the cwd fallback) finds it.
 - For a script that's an **MCP server** launched via `.mcp.json`: cwd is
-  *not* guaranteed to be the instance root. Set `CONCIERGE_HOME`
+  *not* guaranteed to be the instance root. Set `CAVEMAN_HOME`
   explicitly in your `.mcp.json`:
   ```json
-  "env": { "CONCIERGE_HOME": "${CLAUDE_PROJECT_DIR}" }
+  "env": { "CAVEMAN_HOME": "${CLAUDE_PROJECT_DIR}" }
   ```
 - For a script invoked by something **outside Claude Code entirely** (a
   Windows Scheduled Task, cron, a systemd timer) — neither mechanism
-  applies; nothing injects `CONCIERGE_HOME` for you, and cwd is whatever
-  the scheduler set. Either resolve the path yourself at schedule-creation
-  time and pass it explicitly, or don't ship that script as a plugin at
-  all — keep it in the instance repo. (`concierge-fantasy`'s
-  `run_headless_claude.ps1` is the example of this — it's deliberately
-  *not* in this marketplace for exactly this reason.)
+  applies, and the plugin's own folder changes with every version. Schedule
+  `cavecore headless --workspace <instance> --prompt-file <file>` instead:
+  `cavecore` is installed once per machine, so its path never moves.
 
 Test both paths before you consider a script "ported": run it with cwd set
 to a real instance directory and confirm it finds real data, and check
