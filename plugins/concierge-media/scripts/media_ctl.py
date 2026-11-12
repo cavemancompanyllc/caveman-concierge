@@ -79,6 +79,7 @@ from urllib.parse import quote
 import httpx
 
 from caveman_core import env as cc_env
+from caveman_core import ledger as cc_ledger
 from caveman_core.paths import workspace_root
 
 ROOT = workspace_root()
@@ -86,7 +87,12 @@ CONFIG_PATH = ROOT / "config" / "media.json"
 CONFIG_EXAMPLE = ROOT / "config" / "media.example.json"
 RULES_PATH = ROOT / "config" / "media_rules.json"
 DATA_DIR = ROOT / "data" / "media"
-TRIAGE_LOG = DATA_DIR / "triage_log.json"
+# Triage decisions live in the workspace ledger (table media_triage_decisions,
+# defined in this plugin's schema/media.sql). The JSON file is the pre-0.2.2
+# store, read once to import any old rows and then renamed out of the way.
+LEDGER_PATH = ROOT / "data" / "ledger.db"
+SCHEMA_SQL = Path(__file__).resolve().parent.parent / "schema" / "media.sql"
+LEGACY_TRIAGE_LOG = DATA_DIR / "triage_log.json"
 
 HTTP_TIMEOUT = 30.0
 SEARCH_TIMEOUT = 120.0  # indexer searches fan out to many trackers; they're slow
@@ -1445,20 +1451,74 @@ def load_rules() -> dict:
         raise MediaError(f"{_rel(RULES_PATH)} is not valid JSON: {exc}") from exc
 
 
-def _triage_log() -> list[dict]:
-    if not TRIAGE_LOG.exists():
-        return []
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ledger():
+    """Open the workspace ledger with this plugin's table in place. Applies
+    schema/media.sql directly (idempotent) so it works without a ledger sync,
+    then folds in any pre-0.2.2 JSON log exactly once."""
+    con = cc_ledger.connect(LEDGER_PATH)
+    con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
+    if LEGACY_TRIAGE_LOG.exists():
+        _import_legacy_log(con)
+    return con
+
+
+def _import_legacy_log(con) -> None:
     try:
-        return json.loads(TRIAGE_LOG.read_text(encoding="utf-8"))
+        entries = json.loads(LEGACY_TRIAGE_LOG.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return []
+        entries = []
+    # The JSON log never recorded which instance a request belonged to; before
+    # 0.2.2 triage only ever ran against the default one.
+    instance = load_config().get("default_instance") or next(iter(load_config()["instances"]))
+    with cc_ledger.write(con):
+        for n, e in enumerate(entries):
+            if e.get("decision") not in ("approve", "reject", "escalate") or e.get("request_id") is None:
+                continue
+            con.execute(
+                "INSERT OR IGNORE INTO media_triage_decisions "
+                "(at, instance, request_id, decision, source, reason, requester, cap_key, legacy_ref) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (e.get("at") or _utc_now(), instance, int(e["request_id"]), e["decision"],
+                 "triage" if e.get("cap_key") else "manual",
+                 e.get("reason"), e.get("requester") or None, (e.get("cap_key") or "").lower() or None,
+                 f"triage_log.json:{n}"),
+            )
+    LEGACY_TRIAGE_LOG.rename(LEGACY_TRIAGE_LOG.with_name("triage_log.imported.json"))
+    print(f"(imported {len(entries)} old triage log entries into the ledger)", file=sys.stderr)
 
 
-def _append_triage_log(entry: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    log = _triage_log()
-    log.append(entry)
-    TRIAGE_LOG.write_text(json.dumps(log, indent=2), encoding="utf-8")
+def _triage_log(instance: str) -> list[dict]:
+    """Every recorded decision for one instance, oldest first."""
+    con = _ledger()
+    try:
+        rows = con.execute(
+            "SELECT at, request_id, decision, source, reason, requester, cap_key "
+            "FROM media_triage_decisions WHERE instance = ? ORDER BY id",
+            (instance,),
+        ).fetchall()
+    finally:
+        con.close()
+    return [dict(r) for r in rows]
+
+
+def _append_triage_log(instance: str, entry: dict) -> None:
+    con = _ledger()
+    try:
+        with cc_ledger.write(con):
+            con.execute(
+                "INSERT INTO media_triage_decisions "
+                "(at, instance, request_id, decision, source, reason, requester, cap_key) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (_utc_now(), instance, int(entry["request_id"]), entry["decision"],
+                 entry.get("source", "triage"), entry.get("reason"),
+                 entry.get("requester") or None, entry.get("cap_key") or None),
+            )
+    finally:
+        con.close()
 
 
 def _requester_name(request: dict) -> str:
@@ -1666,18 +1726,17 @@ def cmd_requests(args: argparse.Namespace) -> int:
     if action == "approve":
         client.approve(args.id)
         print(f"approved request {args.id} - Jellyseerr will hand it to Radarr/Sonarr")
-        _append_triage_log({
-            "at": datetime.now(timezone.utc).isoformat(), "request_id": args.id,
-            "decision": "approve", "reason": "manual", "requester": "",
+        _append_triage_log(inst.name, {
+            "request_id": args.id, "decision": "approve", "source": "manual", "reason": "manual",
         })
         return 0
 
     if action == "decline":
         client.decline(args.id)
         print(f"declined request {args.id}: {args.reason}")
-        _append_triage_log({
-            "at": datetime.now(timezone.utc).isoformat(), "request_id": args.id,
-            "decision": "reject", "reason": args.reason or "manual", "requester": "",
+        _append_triage_log(inst.name, {
+            "request_id": args.id, "decision": "reject", "source": "manual",
+            "reason": args.reason or "manual",
         })
         return 0
 
@@ -1688,28 +1747,31 @@ def cmd_requests(args: argparse.Namespace) -> int:
             print("no pending requests")
             return 0
 
-        log = _triage_log()
+        log = _triage_log(inst.name)
         # A request we already approved/rejected should have left the pending
         # list. If it's still here, the API call didn't stick - skip it rather
         # than looping on it every run.
-        acted = {e.get("request_id") for e in log if e.get("decision") in ("approve", "reject")}
+        acted = {e["request_id"] for e in log if e["decision"] in ("approve", "reject")}
         # Escalations ARE re-evaluated every run, because the answer can change
         # (the weekly cap rolls over, the owner edits the rules). They're just not
         # re-notified, so a pending request doesn't ping Discord every 15 min.
-        notified = {e.get("request_id") for e in log if e.get("decision") == "escalate"}
+        notified = {e["request_id"] for e in log if e["decision"] == "escalate"}
         cutoff = datetime.now(timezone.utc) - timedelta(days=7)
         weekly: dict[str, int] = {}
         for entry in log:
-            if entry.get("decision") != "approve":
+            # Only approvals triage itself granted count toward a cap; the
+            # owner's manual approvals (source 'manual', no cap_key) don't.
+            if entry["decision"] != "approve" or entry["source"] != "triage" or not entry["cap_key"]:
                 continue
             try:
-                when = datetime.fromisoformat(entry.get("at", ""))
+                when = datetime.fromisoformat(entry["at"])
             except ValueError:
                 continue
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
             if when >= cutoff:
-                key = (entry.get("cap_key") or "").lower()
-                if key:  # manual approvals by the owner carry no cap_key and don't count
-                    weekly[key] = weekly.get(key, 0) + 1
+                key = entry["cap_key"].lower()
+                weekly[key] = weekly.get(key, 0) + 1
 
         counts = {"approve": 0, "reject": 0, "escalate": 0, "skipped": 0}
         for request in pending:
@@ -1750,10 +1812,9 @@ def cmd_requests(args: argparse.Namespace) -> int:
             else:
                 _notify(rules, f"Media request #{request_id} from {who} needs you: {reason}")
 
-            _append_triage_log({
-                "at": datetime.now(timezone.utc).isoformat(), "request_id": request_id,
-                "decision": decision, "reason": reason, "requester": who,
-                "cap_key": cap_key,
+            _append_triage_log(inst.name, {
+                "request_id": request_id, "decision": decision, "source": "triage",
+                "reason": reason, "requester": who, "cap_key": cap_key,
             })
 
         prefix = "DRY RUN - nothing changed. Would have: " if args.dry_run else ""
