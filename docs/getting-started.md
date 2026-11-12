@@ -45,18 +45,25 @@ config) so the choice travels with the repo. Add more plugins the same
 way; see [agent-catalog.md](agent-catalog.md) for the full list and what
 each one needs.
 
-Plugins that need configuration (a vault path, an API key, a host) take
-it via `--config`:
+Plugins that need configuration read it from the workspace, so each
+instance keeps its own values:
 
-```bash
-claude plugin install concierge-memory-obsidian@caveman-concierge --scope project \
-  --config vault_path="/path/to/vault" \
-  --config api_key="..."
-```
+- **Secrets** (API keys, passwords) go in the instance's `.env`.
+- **Plain settings** (a vault path, an ID, a label) go in `workspace.yaml`
+  under `plugins:`:
 
-Run `claude plugin details <name>@caveman-concierge` to see a plugin's
-exact `userConfig` options before installing, or `claude plugin list` any
-time to see what's currently enabled in this instance.
+  ```yaml
+  plugins:
+    concierge-memory-obsidian:
+      vault_path: ~/Vaults/home
+  ```
+
+- **Your own lists and rules** go in `config/`, copied from the plugin's
+  `config/*.example.json`.
+
+Avoid `--config` at install time for anything workspace-specific: Claude
+Code stores those values per user, so they apply in every instance on the
+machine. `claude plugin list` shows what's enabled in this instance.
 
 ## 4. Start using it
 
