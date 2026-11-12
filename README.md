@@ -22,7 +22,9 @@ automatically as a dependency and provides the workspace model, the session
 ledger, one handoff command and shared code. Install its small Python package
 once per machine first ([how](https://github.com/cavemancompanyllc/caveman-core#install)).
 
-Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
+Full walkthrough: [docs/getting-started.md](docs/getting-started.md). The
+[Caveman Guidebook](https://claude.ai/artifact/BqKC5JCLADrzh6mFpVChBV) covers setup, every
+plugin, the CLI and release notes in one page.
 Full plugin list + what each one needs: [docs/agent-catalog.md](docs/agent-catalog.md).
 
 ## No API key, no separate bill
