@@ -1,6 +1,9 @@
 httpx>=0.28
-yt-dlp
+yt-dlp[default,curl-cffi]
 # yt-dlp deliberately unpinned - sites change their players constantly and
 # old versions stop working; the fix for an extraction error is
-# `pip install -U yt-dlp`. Also needs ffmpeg as a separate binary on PATH
-# to merge separate video/audio streams (not a pip package).
+# `pip install -U "yt-dlp[default,curl-cffi]"`. The curl-cffi extra lets
+# yt-dlp impersonate a browser, which some sites require (Dailymotion fails
+# with "impersonate targets are available" without it). Also needs ffmpeg
+# as a separate binary on PATH to merge separate video/audio streams (not a
+# pip package).

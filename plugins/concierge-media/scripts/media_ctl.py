@@ -1384,6 +1384,9 @@ def _run_yt_dlp(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
         if "ffmpeg" in stderr.lower():
             hint = ("\nhint: ffmpeg is missing. yt-dlp needs it to merge separate video and "
                     "audio streams - install it and make sure it's on PATH.")
+        elif re.search(r"impersonat", stderr, re.I):
+            hint = ("\nhint: this site needs browser impersonation. Install it with: "
+                    'pip install -U "yt-dlp[default,curl-cffi]"')
         elif re.search(r"unsupported url|unable to extract|nsig|player", stderr, re.I):
             hint = ("\nhint: extractors break when sites change. Update with: "
                     "pip install -U yt-dlp")

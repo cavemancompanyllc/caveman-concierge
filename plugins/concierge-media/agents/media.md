@@ -96,7 +96,8 @@ UNC share). Either way that library gets a Plex scan afterwards. If the
 user names a library ("put it in Private"), pass that as `--library`; never
 guess a destination folder. If the upload fails the download is kept and the
 error says where - report that, don't re-download.
-If yt-dlp fails with an extraction error, the fix is `pip install -U yt-dlp`
+If yt-dlp fails with an extraction or impersonation error, the fix is
+`pip install -U "yt-dlp[default,curl-cffi]"`
 - say so rather than retrying. If it mentions ffmpeg, ffmpeg is missing.
 
 ## Automation - you oversee it, you are not the engine
