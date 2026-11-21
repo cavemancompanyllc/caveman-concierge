@@ -42,7 +42,7 @@ Usage:
     python scripts/media_ctl.py search "<query>" [--category movies|tv|any]
     python scripts/media_ctl.py download (--guid <g> | --magnet <uri>) [--save-path P]
 
-    python scripts/media_ctl.py fetch-url <url> [--library web] [--dry-run]
+    python scripts/media_ctl.py fetch-url <url> [--library web|<Plex title>] [--dry-run]
 
     python scripts/media_ctl.py automation status
     python scripts/media_ctl.py automation history [--limit N] [--brief]
@@ -866,6 +866,14 @@ def cmd_plex(args: argparse.Namespace) -> int:
             print(f"triggered scan of {len(sections)} librar"
                   f"{'y' if len(sections) == 1 else 'ies'}")
         else:
+            # Accept a library title too ("Private"), not just the numeric id;
+            # Plex answers a title in the URL with a bare 404.
+            if not target.isdigit():
+                section = plex.section_by_name(target)
+                if not section:
+                    raise MediaError(f"Plex has no library named '{target}' - "
+                                     f"see `plex libraries`")
+                target = section["key"]
             plex.refresh(target)
             print(f"triggered scan of library {target}")
         return 0
@@ -1187,22 +1195,113 @@ def _yt_dlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
+def _resolve_library(inst: Instance, library: str) -> tuple[str, dict | None]:
+    """Map --library (a config role like 'web', or a Plex library title like
+    'Private') to the Plex library title and its section, if Plex is set up."""
+    name = inst.library_name(library) or library
+    section = inst.plex().section_by_name(name) if inst.block("plex") else None
+    return name, section
+
+
+def _section_path(section: dict | None) -> str | None:
+    """The folder Plex itself reads the library from (its first location)."""
+    locations = (section or {}).get("Location") or []
+    return locations[0].get("path") if locations else None
+
+
+def _ssh_target(inst: Instance) -> dict | None:
+    """The instance's optional `ssh` block: files go to the Plex machine over
+    sftp instead of a file share. {"host": "user@ip", "key": "~/.ssh/id"}."""
+    block = inst.data.get("ssh")
+    return block if isinstance(block, dict) and block.get("host") else None
+
+
+def _ssh_base(ssh: dict) -> list[str]:
+    opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15"]
+    if ssh.get("key"):
+        opts += ["-i", os.path.expanduser(ssh["key"])]
+    return opts
+
+
+def _sftp_quote(path: str, remote: bool = True) -> str:
+    """sftp batch files take double-quoted paths; forward slashes work on both
+    Windows and Linux OpenSSH servers."""
+    path = path.replace("\\", "/")
+    # Windows OpenSSH's sftp server reads "C:/x" as relative to the home dir;
+    # an absolute drive path has to be spelled "/C:/x". Local paths (the put
+    # source) are left alone - only remote ones go through this rewrite.
+    if remote and re.match(r"^[A-Za-z]:/", path):
+        path = "/" + path
+    if '"' in path:
+        raise MediaError(f"refusing a path containing a double quote: {path}")
+    return f'"{path}"'
+
+
+def _sftp_upload(ssh: dict, files: list[Path], remote_dir: str, timeout: float) -> None:
+    """Upload each file into remote_dir. `sftp -b` stops and exits non-zero on
+    the first failed command, so a zero exit means every put completed."""
+    # Leading "-" = ignore failure: the folder usually exists already.
+    lines = [f"-mkdir {_sftp_quote(remote_dir)}"]
+    lines += [f"put {_sftp_quote(str(f), remote=False)} {_sftp_quote(remote_dir + '/' + f.name)}"
+              for f in files]
+    batch = "\n".join(lines) + "\n"
+    cmd = ["sftp", *_ssh_base(ssh), "-b", "-", ssh["host"]]
+    try:
+        result = subprocess.run(cmd, input=batch, text=True, capture_output=True,
+                                timeout=timeout)
+    except FileNotFoundError as exc:
+        raise MediaError("sftp is not installed (it ships with OpenSSH)") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MediaError(f"sftp upload timed out after {timeout}s") from exc
+    if result.returncode != 0:
+        noise = re.compile(r"post-quantum|store now|openssh\.com/pq|may need to be upgraded", re.I)
+        stderr = "\n".join(l for l in result.stderr.splitlines() if not noise.search(l))
+        raise MediaError(f"sftp upload to {ssh['host']}:{remote_dir} failed "
+                         f"(exit {result.returncode}):\n{stderr.strip()[-1200:]}")
+
+
 def cmd_fetch_url(args: argparse.Namespace) -> int:
     inst = get_instance(args.instance)
-    target = args.dest or inst.path("web_videos")
+    ssh = _ssh_target(inst)
+    lib_name, section = _resolve_library(inst, args.library)
+    if inst.block("plex") and not section and not args.dest:
+        raise MediaError(f"Plex has no library '{lib_name}' (from --library {args.library}). "
+                         f"See `plex libraries`, or pass --dest.")
+
+    # Destination: --dest wins. With ssh, the folder Plex itself reads the
+    # library from - a path on the Plex machine, exactly where sftp writes.
+    # Without ssh, `paths` entries (local disk or UNC share as seen from here).
+    if args.dest:
+        target = args.dest
+    elif ssh:
+        target = _section_path(section)
+    else:
+        legacy = inst.path("web_videos") if args.library == "web" else None
+        target = inst.path(args.library) or legacy
     if not target:
         raise NotConfigured(
-            f"no destination. Add paths.web_videos to {_rel(CONFIG_PATH)} "
-            f"(a UNC path if Plex runs as a service on another machine), or pass --dest."
+            f"no destination for '{args.library}'. Either add an `ssh` block to the "
+            f"instance in {_rel(CONFIG_PATH)} (files are then uploaded into the "
+            f"library's own folder), set paths.{args.library}, or pass --dest."
         )
-    if is_mapped_network_drive(target):
+    if ssh:
+        # Download here, then upload. A fresh directory per run, so only this
+        # run's files are uploaded.
+        import tempfile  # noqa: PLC0415
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix="fetch-", dir=DATA_DIR))
+        local_dir = str(staging)
+    else:
+        staging = None
+        local_dir = target
+    if not ssh and is_mapped_network_drive(target):
         print(f"warning: '{target}' is on a mapped network drive. That's fine for writing "
               f"from here, but if Plex runs as a Windows service it can't see mapped "
               f"drives - point its library at the UNC path (\\\\HOST\\Share\\...) instead.",
               file=sys.stderr)
 
     template = args.template or "%(uploader)s - %(title)s (%(upload_date>%Y)s).%(ext)s"
-    output = str(Path(target) / template)
+    output = str(Path(local_dir) / template)
 
     cmd = _yt_dlp_cmd() + [
         "--windows-filenames",     # keeps titles writable on SMB/NTFS targets
@@ -1222,23 +1321,63 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
         cmd += ["--no-simulate", "--print", "after_move:filepath"]
     cmd.append(args.url)
 
-    print(f"destination: {target}")
+    remote_dir = target.replace("\\", "/").rstrip("/")
+    print(f"library: {lib_name}")
+    print(f"destination: {ssh['host']}:{target}" if ssh else f"destination: {target}")
     if args.dry_run:
         print("(dry run - resolving output filename only)\n")
 
     try:
+        result = _run_yt_dlp(cmd, args.timeout)
+    except MediaError:
+        if staging:
+            shutil.rmtree(staging, ignore_errors=True)  # partial files only
+        raise
+
+    produced = [Path(line.strip()) for line in result.stdout.splitlines() if line.strip()]
+    if not ssh:
+        for path in produced:
+            print(path)
+    elif args.dry_run:
+        shutil.rmtree(staging, ignore_errors=True)
+        for path in produced:
+            print(f"{remote_dir}/{path.name}")
+    else:
+        files = [p for p in produced if p.is_file()]
+        if not files:
+            raise MediaError(f"yt-dlp reported success but left no file in {staging}")
+        try:
+            _sftp_upload(ssh, files, remote_dir, args.timeout)
+        except MediaError:
+            # Keep the finished download so the upload can be retried by hand.
+            print(f"download kept at {staging} for a manual retry", file=sys.stderr)
+            raise
+        for path in files:
+            print(f"{remote_dir}/{path.name}  ({path.stat().st_size} bytes)")
+        shutil.rmtree(staging, ignore_errors=True)
+    if args.dry_run:
+        return 0
+
+    if section:
+        inst.plex().refresh(section["key"])
+        print(f"\ntriggered a Plex scan of '{lib_name}'")
+    elif inst.block("plex"):
+        print(f"\nwarning: Plex has no library named '{lib_name}' - nothing scanned.",
+              file=sys.stderr)
+    return 0
+
+
+def _run_yt_dlp(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
+    try:
         # List form, never shell=True: the URL is caller-supplied and the page
         # title lands in a filename.
-        result = subprocess.run(cmd, text=True, capture_output=True, timeout=args.timeout)
+        result = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
     except FileNotFoundError as exc:
         raise MediaError(
             "yt-dlp is not installed. Install it with: pip install -r requirements.txt"
         ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise MediaError(f"yt-dlp timed out after {args.timeout}s") from exc
-
-    if result.stdout.strip():
-        print(result.stdout.strip())
+        raise MediaError(f"yt-dlp timed out after {timeout}s") from exc
     if result.returncode != 0:
         stderr = result.stderr.strip()
         hint = ""
@@ -1249,22 +1388,7 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
             hint = ("\nhint: extractors break when sites change. Update with: "
                     "pip install -U yt-dlp")
         raise MediaError(f"yt-dlp failed (exit {result.returncode}):\n{stderr[-1200:]}{hint}")
-
-    if args.dry_run:
-        return 0
-
-    role = args.library or "web"
-    name = inst.library_name(role)
-    if name and inst.block("plex"):
-        plex = inst.plex()
-        section = plex.section_by_name(name)
-        if section:
-            plex.refresh(section["key"])
-            print(f"\ntriggered a Plex scan of '{name}'")
-        else:
-            print(f"\nwarning: Plex has no library named '{name}' - nothing scanned. "
-                  f"Create one of type 'Other Videos' pointing at {target}.", file=sys.stderr)
-    return 0
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1961,7 +2085,7 @@ def build_parser() -> argparse.ArgumentParser:
     plex_sub = plex.add_subparsers(dest="plex_action", required=True)
     plex_sub.add_parser("libraries", help="list libraries")
     scan = plex_sub.add_parser("scan", help="trigger a library scan")
-    scan.add_argument("target", help="library id, or 'all'")
+    scan.add_argument("target", help="library id or title, or 'all'")
     plex_sub.add_parser("sessions", help="who is watching right now")
     recent = plex_sub.add_parser("recent", help="recently added items")
     recent.add_argument("--limit", type=int, default=20)
@@ -2027,8 +2151,11 @@ def build_parser() -> argparse.ArgumentParser:
     # -- path C -------------------------------------------------------------
     fetch = sub.add_parser("fetch-url", help="download a video from a web URL with yt-dlp")
     fetch.add_argument("url")
-    fetch.add_argument("--library", default="web", help="library role to scan afterwards")
-    fetch.add_argument("--dest", help="override the destination directory")
+    fetch.add_argument("--library", default="web",
+                       help="target library: a role from config (web) or a Plex library "
+                            "title (Private). Picks the destination and gets scanned.")
+    fetch.add_argument("--dest", help="override the destination directory (on the Plex "
+                                      "machine when the instance has an ssh block)")
     fetch.add_argument("--template", help="yt-dlp output template")
     fetch.add_argument("--format", help="yt-dlp format selector")
     fetch.add_argument("--ascii-names", action="store_true",

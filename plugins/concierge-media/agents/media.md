@@ -84,11 +84,18 @@ steer them to path A instead.
 
 **C. A web URL** (YouTube or any site yt-dlp supports):
 
-    fetch-url <url> --dry-run         -> shows the resolved filename first
-    fetch-url <url>
+    fetch-url <url> --dry-run                     -> shows the resolved filename first
+    fetch-url <url>                               -> the 'web' library (Other Videos)
+    fetch-url <url> --library <role|Plex title>   -> any other library, e.g. Private
 
-Do the dry run first and show the user the filename. Files land in the
-configured `web_videos` path and a Plex scan of that library is triggered.
+Do the dry run first and show the user the filename and destination. When
+the instance has an `ssh` block, the video is downloaded here and uploaded
+over sftp into the folder Plex itself reads that library from - no share or
+path config needed. Without one, it writes to `paths.<role>` (local disk or
+UNC share). Either way that library gets a Plex scan afterwards. If the
+user names a library ("put it in Private"), pass that as `--library`; never
+guess a destination folder. If the upload fails the download is kept and the
+error says where - report that, don't re-download.
 If yt-dlp fails with an extraction error, the fix is `pip install -U yt-dlp`
 - say so rather than retrying. If it mentions ffmpeg, ffmpeg is missing.
 
