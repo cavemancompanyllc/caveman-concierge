@@ -43,6 +43,7 @@ Usage:
     python scripts/media_ctl.py download (--guid <g> | --magnet <uri>) [--save-path P]
 
     python scripts/media_ctl.py fetch-url <url> [--library web|<Plex title>] [--dry-run]
+    python scripts/media_ctl.py fetch-url --clean
 
     python scripts/media_ctl.py automation status
     python scripts/media_ctl.py automation history [--limit N] [--brief]
@@ -1262,7 +1263,34 @@ def _sftp_upload(ssh: dict, files: list[Path], remote_dir: str, timeout: float) 
                          f"(exit {result.returncode}):\n{stderr.strip()[-1200:]}")
 
 
+def _fetch_clean() -> None:
+    """Remove every local trace fetch-url can leave: staging dirs kept after a
+    failed upload, and yt-dlp's own cache. Nothing on the Plex machine and
+    nothing in Plex is touched."""
+    staged = sorted(DATA_DIR.glob("fetch-*")) if DATA_DIR.exists() else []
+    for path in staged:
+        shutil.rmtree(path, ignore_errors=True)
+    left = [p for p in staged if p.exists()]
+    print(f"removed {len(staged) - len(left)} leftover download folder(s) from {_rel(DATA_DIR)}")
+    for path in left:
+        print(f"warning: could not remove {path} (file in use?)", file=sys.stderr)
+    try:
+        result = subprocess.run(_yt_dlp_cmd() + ["--rm-cache-dir"], text=True,
+                                encoding="utf-8", errors="replace",
+                                capture_output=True, timeout=120)
+        print("cleared yt-dlp cache" if result.returncode == 0
+              else f"warning: yt-dlp --rm-cache-dir failed: {result.stderr.strip()[-300:]}")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        print(f"warning: could not clear yt-dlp cache: {exc}", file=sys.stderr)
+
+
 def cmd_fetch_url(args: argparse.Namespace) -> int:
+    if args.clean:
+        _fetch_clean()
+        if not args.url:
+            return 0
+    elif not args.url:
+        raise MediaError("fetch-url needs a URL (or --clean)")
     inst = get_instance(args.instance)
     ssh = _ssh_target(inst)
     lib_name, section = _resolve_library(inst, args.library)
@@ -1352,7 +1380,8 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
         files = sorted(p for p in staging.iterdir()
                        if p.is_file() and p.suffix not in (".part", ".ytdl"))
         if not files:
-            raise MediaError(f"yt-dlp reported success but left no file in {staging}")
+            shutil.rmtree(staging, ignore_errors=True)  # nothing worth keeping
+            raise MediaError("yt-dlp reported success but left no finished file")
         try:
             _sftp_upload(ssh, files, remote_dir, args.timeout)
         except MediaError:
@@ -2164,7 +2193,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- path C -------------------------------------------------------------
     fetch = sub.add_parser("fetch-url", help="download a video from a web URL with yt-dlp")
-    fetch.add_argument("url")
+    fetch.add_argument("url", nargs="?")
+    fetch.add_argument("--clean", action="store_true",
+                       help="delete local leftovers (failed-upload downloads, yt-dlp cache); "
+                            "runs before the download when a URL is also given")
     fetch.add_argument("--library", default="web",
                        help="target library: a role from config (web) or a Plex library "
                             "title (Private). Picks the destination and gets scanned.")

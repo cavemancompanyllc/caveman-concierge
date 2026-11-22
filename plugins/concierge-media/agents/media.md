@@ -96,6 +96,13 @@ UNC share). Either way that library gets a Plex scan afterwards. If the
 user names a library ("put it in Private"), pass that as `--library`; never
 guess a destination folder. If the upload fails the download is kept and the
 error says where - report that, don't re-download.
+
+fetch-url keeps no history of what was downloaded, and must stay that way:
+never log URLs, titles or sites anywhere (ledger, notes, vault). The only
+local traces are a failed upload's kept download and yt-dlp's cache;
+`fetch-url --clean` deletes both (local only, never Plex). Run it when the
+user asks to clear download history/leftovers, or after they've retried or
+given up on a failed upload.
 If yt-dlp fails with an extraction or impersonation error, the fix is
 `pip install -U "yt-dlp[default,curl-cffi]"`
 - say so rather than retrying. If it mentions ffmpeg, ffmpeg is missing.
