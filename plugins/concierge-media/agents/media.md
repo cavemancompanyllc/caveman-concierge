@@ -87,6 +87,16 @@ steer them to path A instead.
     fetch-url <url> --dry-run                     -> shows the resolved filename first
     fetch-url <url>                               -> the 'web' library (Other Videos)
     fetch-url <url> --library <role|Plex title>   -> any other library, e.g. Private
+    fetch-url <url> <url> ... [--library ...]     -> several links in one run
+    fetch-url --batch-file <links.txt> [...]      -> a file of links, one per line
+
+For several links (pasted, or a file the user hands you), use ONE run: pass
+them all as arguments, or point --batch-file at the user's file - never copy
+the list into a new file. A dry run of a batch is optional; for many links
+skip it unless the user asks. A bad link fails alone; the run ends with a
+"N of M downloaded" summary listing each failed link and why - relay that,
+and exit code 1 just means at least one link failed. All files upload
+together and the library is scanned once.
 
 Do the dry run first and show the user the filename and destination. When
 the instance has an `ssh` block, the video is downloaded here and uploaded

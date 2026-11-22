@@ -43,6 +43,7 @@ Usage:
     python scripts/media_ctl.py download (--guid <g> | --magnet <uri>) [--save-path P]
 
     python scripts/media_ctl.py fetch-url <url> [--library web|<Plex title>] [--dry-run]
+    python scripts/media_ctl.py fetch-url <url> <url> ... | --batch-file links.txt
     python scripts/media_ctl.py fetch-url --clean
 
     python scripts/media_ctl.py automation status
@@ -1284,13 +1285,37 @@ def _fetch_clean() -> None:
         print(f"warning: could not clear yt-dlp cache: {exc}", file=sys.stderr)
 
 
+def _read_url_list(args: argparse.Namespace) -> list[str]:
+    """URLs from the command line plus --batch-file (one per line; blank lines
+    and #comments skipped), de-duplicated in order. Nothing is stored."""
+    urls = list(args.urls or [])
+    if args.batch_file:
+        path = Path(args.batch_file)
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            raise MediaError(f"can't read batch file {path}: {exc}") from exc
+        for line in text.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+    seen: set[str] = set()
+    return [u for u in urls if not (u in seen or seen.add(u))]
+
+
+def _finished_files(folder: Path) -> set[Path]:
+    return {p for p in folder.iterdir()
+            if p.is_file() and p.suffix not in (".part", ".ytdl")}
+
+
 def cmd_fetch_url(args: argparse.Namespace) -> int:
+    urls = _read_url_list(args)
     if args.clean:
         _fetch_clean()
-        if not args.url:
+        if not urls:
             return 0
-    elif not args.url:
-        raise MediaError("fetch-url needs a URL (or --clean)")
+    elif not urls:
+        raise MediaError("fetch-url needs a URL, --batch-file, or --clean")
     inst = get_instance(args.instance)
     ssh = _ssh_target(inst)
     lib_name, section = _resolve_library(inst, args.library)
@@ -1339,7 +1364,7 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
     template = args.template or "%(uploader,channel,creator&{} - |)s%(title)s%(yearp|)s.%(ext)s"
     output = str(Path(local_dir) / template)
 
-    cmd = _yt_dlp_cmd() + [
+    base = _yt_dlp_cmd() + [
         "--encoding", "utf-8",     # matches the decoding in _run_yt_dlp
         "--windows-filenames",     # keeps titles writable on SMB/NTFS targets
         "--no-playlist",           # a single link means a single video
@@ -1349,66 +1374,99 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
         "--output", output,
     ]
     if args.ascii_names:
-        cmd.append("--restrict-filenames")
+        base.append("--restrict-filenames")
     if args.format:
-        cmd += ["--format", args.format]
+        base += ["--format", args.format]
     if args.dry_run:
-        cmd += ["--simulate", "--print", "filename"]
+        base += ["--simulate", "--print", "filename"]
     else:
         # --print normally implies --simulate; --no-simulate keeps the download
         # and still reports where the finished file actually landed.
-        cmd += ["--no-simulate", "--print", "after_move:filepath"]
-    cmd.append(args.url)
+        base += ["--no-simulate", "--print", "after_move:filepath"]
 
     remote_dir = target.replace("\\", "/").rstrip("/")
+    batch = len(urls) > 1
     print(f"library: {lib_name}")
     print(f"destination: {ssh['host']}:{target}" if ssh else f"destination: {target}")
+    if batch:
+        print(f"links: {len(urls)}")
     if args.dry_run:
-        print("(dry run - resolving output filename only)\n")
+        print("(dry run - resolving output filename only)")
+    print()
 
-    try:
-        result = _run_yt_dlp(cmd, args.timeout)
-    except MediaError:
-        if staging:
-            shutil.rmtree(staging, ignore_errors=True)  # partial files only
-        raise
-
-    produced = [Path(line.strip()) for line in result.stdout.splitlines() if line.strip()]
-    if not ssh:
-        for path in produced:
-            print(path)
-    elif args.dry_run:
-        shutil.rmtree(staging, ignore_errors=True)
-        for path in produced:
-            print(f"{remote_dir}/{path.name}")
-    else:
-        # The staging dir is fresh per run, so everything finished in it is
-        # this download. Don't trust the printed path alone: a title with
-        # emoji can still come back mangled on a non-UTF-8 console.
-        files = sorted(p for p in staging.iterdir()
-                       if p.is_file() and p.suffix not in (".part", ".ytdl"))
-        if not files:
-            shutil.rmtree(staging, ignore_errors=True)  # nothing worth keeping
-            raise MediaError("yt-dlp reported success but left no finished file")
+    # One yt-dlp run per link, so a bad link fails alone and every result can
+    # be attributed to its link. With ssh, a link's file is whatever newly
+    # appeared in staging - the printed path can be mangled (emoji titles).
+    ok: list[tuple[str, list[str]]] = []
+    failed: list[tuple[str, str]] = []
+    for n, url in enumerate(urls, 1):
+        tag = f"[{n}/{len(urls)}] " if batch else ""
+        before = _finished_files(staging) if staging else set()
         try:
-            _sftp_upload(ssh, files, remote_dir, args.timeout)
+            result = _run_yt_dlp(base + [url], args.timeout)
+        except MediaError as exc:
+            if not batch:
+                if staging:
+                    shutil.rmtree(staging, ignore_errors=True)
+                raise
+            failed.append((url, str(exc)))
+            print(f"{tag}FAILED {url}\n{exc}\n")
+            continue
+        if staging and not args.dry_run:
+            names = sorted(p.name for p in _finished_files(staging) - before)
+            if not names:
+                if not batch:
+                    shutil.rmtree(staging, ignore_errors=True)
+                    raise MediaError("yt-dlp reported success but left no finished file")
+                # yt-dlp skips a file whose name already exists in staging.
+                failed.append((url, "no new file - same name as another link in this batch?"))
+                print(f"{tag}FAILED {url}: no new file\n")
+                continue
+        else:
+            names = [Path(line.strip()).name if ssh else line.strip()
+                     for line in result.stdout.splitlines() if line.strip()]
+        ok.append((url, names))
+        if batch:
+            print(f"{tag}ok {', '.join(names)}")
+
+    if staging and args.dry_run:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    if staging and not args.dry_run and ok:
+        files = sorted(_finished_files(staging))
+        try:
+            _sftp_upload(ssh, files, remote_dir, args.timeout * max(1, len(files)))
         except MediaError:
-            # Keep the finished download so the upload can be retried by hand.
-            print(f"download kept at {staging} for a manual retry", file=sys.stderr)
+            # Keep the finished downloads so the upload can be retried by hand.
+            print(f"downloads kept at {staging} for a manual retry", file=sys.stderr)
             raise
+        if batch:
+            print(f"\nuploaded {len(files)} file(s):")
         for path in files:
             print(f"{remote_dir}/{path.name}  ({path.stat().st_size} bytes)")
+    elif not batch:
+        for _, names in ok:
+            for name in names:
+                print(f"{remote_dir}/{name}" if ssh else name)
+    if staging:
+        # Reached only after a successful upload (a failed one raised above
+        # and keeps its files), or when nothing was downloaded at all.
         shutil.rmtree(staging, ignore_errors=True)
-    if args.dry_run:
-        return 0
 
-    if section:
-        inst.plex().refresh(section["key"])
-        print(f"\ntriggered a Plex scan of '{lib_name}'")
-    elif inst.block("plex"):
-        print(f"\nwarning: Plex has no library named '{lib_name}' - nothing scanned.",
-              file=sys.stderr)
-    return 0
+    if batch:
+        verb = "resolved" if args.dry_run else "downloaded"
+        print(f"\n{len(ok)} of {len(urls)} {verb}, {len(failed)} failed")
+        for url, why in failed:
+            print(f"  failed: {url} - {why.splitlines()[-1] if why else ''}")
+
+    if not args.dry_run and ok:
+        if section:
+            inst.plex().refresh(section["key"])
+            print(f"\ntriggered a Plex scan of '{lib_name}'")
+        elif inst.block("plex"):
+            print(f"\nwarning: Plex has no library named '{lib_name}' - nothing scanned.",
+                  file=sys.stderr)
+    return 1 if failed else 0
 
 
 def _run_yt_dlp(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
@@ -2201,7 +2259,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # -- path C -------------------------------------------------------------
     fetch = sub.add_parser("fetch-url", help="download a video from a web URL with yt-dlp")
-    fetch.add_argument("url", nargs="?")
+    fetch.add_argument("urls", nargs="*", metavar="url", help="one or more links")
+    fetch.add_argument("--batch-file", help="text file of links, one per line (# comments ok)")
     fetch.add_argument("--clean", action="store_true",
                        help="delete local leftovers (failed-upload downloads, yt-dlp cache); "
                             "runs before the download when a URL is also given")
