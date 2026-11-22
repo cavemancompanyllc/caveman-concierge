@@ -1330,7 +1330,13 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
               f"drives - point its library at the UNC path (\\\\HOST\\Share\\...) instead.",
               file=sys.stderr)
 
-    template = args.template or "%(uploader)s - %(title)s (%(upload_date>%Y)s).%(ext)s"
+    # "Uploader - Title (Year).ext", but each part only when the site gives it,
+    # so a site with no uploader/date yields "Title.ext", not "NA - Title (NA)".
+    # `&` formats a present value and `|` is the empty default. The year can't
+    # use `&` because a ")" inside a field ends it, so " (YYYY)" is built as
+    # its own field (yearp) by the --parse-metadata/--replace-in-metadata pair
+    # below; when there's no upload_date the field stays unset.
+    template = args.template or "%(uploader,channel,creator&{} - |)s%(title)s%(yearp|)s.%(ext)s"
     output = str(Path(local_dir) / template)
 
     cmd = _yt_dlp_cmd() + [
@@ -1338,6 +1344,8 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
         "--windows-filenames",     # keeps titles writable on SMB/NTFS targets
         "--no-playlist",           # a single link means a single video
         "--merge-output-format", "mp4",
+        "--parse-metadata", r"upload_date:(?P<yearp>\d{4})",
+        "--replace-in-metadata", "yearp", "^(.+)$", r" (\1)",
         "--output", output,
     ]
     if args.ascii_names:
