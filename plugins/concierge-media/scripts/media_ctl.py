@@ -1247,8 +1247,10 @@ def _sftp_upload(ssh: dict, files: list[Path], remote_dir: str, timeout: float) 
     batch = "\n".join(lines) + "\n"
     cmd = ["sftp", *_ssh_base(ssh), "-b", "-", ssh["host"]]
     try:
-        result = subprocess.run(cmd, input=batch, text=True, capture_output=True,
-                                timeout=timeout)
+        # UTF-8 explicitly: with the Windows default code page an emoji in a
+        # title makes the stdin write fail, and sftp then waits forever.
+        result = subprocess.run(cmd, input=batch, text=True, encoding="utf-8",
+                                errors="replace", capture_output=True, timeout=timeout)
     except FileNotFoundError as exc:
         raise MediaError("sftp is not installed (it ships with OpenSSH)") from exc
     except subprocess.TimeoutExpired as exc:
@@ -1304,6 +1306,7 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
     output = str(Path(local_dir) / template)
 
     cmd = _yt_dlp_cmd() + [
+        "--encoding", "utf-8",     # matches the decoding in _run_yt_dlp
         "--windows-filenames",     # keeps titles writable on SMB/NTFS targets
         "--no-playlist",           # a single link means a single video
         "--merge-output-format", "mp4",
@@ -1343,7 +1346,11 @@ def cmd_fetch_url(args: argparse.Namespace) -> int:
         for path in produced:
             print(f"{remote_dir}/{path.name}")
     else:
-        files = [p for p in produced if p.is_file()]
+        # The staging dir is fresh per run, so everything finished in it is
+        # this download. Don't trust the printed path alone: a title with
+        # emoji can still come back mangled on a non-UTF-8 console.
+        files = sorted(p for p in staging.iterdir()
+                       if p.is_file() and p.suffix not in (".part", ".ytdl"))
         if not files:
             raise MediaError(f"yt-dlp reported success but left no file in {staging}")
         try:
@@ -1371,7 +1378,11 @@ def _run_yt_dlp(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
     try:
         # List form, never shell=True: the URL is caller-supplied and the page
         # title lands in a filename.
-        result = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
+        # Force UTF-8 both ways: on Windows the default console code page
+        # drops emoji from titles, so printed paths stop matching real files.
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+        result = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, timeout=timeout, env=env)
     except FileNotFoundError as exc:
         raise MediaError(
             "yt-dlp is not installed. Install it with: pip install -r requirements.txt"
